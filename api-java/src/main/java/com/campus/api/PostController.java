@@ -1,10 +1,9 @@
 package com.campus.api;
 
 import org.springframework.web.bind.annotation.*;
-
 import java.time.Instant;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/posts")
@@ -22,149 +21,125 @@ public class PostController {
         this.userRepo = userRepo;
     }
 
-    // JWT 붙기 전까지 임시로 유저 ID 1번으로 고정
+    // TODO: 나중에 JWT 붙이면 여기서 유저 ID 뽑아서 쓰면 됨
     private Long mockUserId() {
         return 1L;
     }
 
-    /**
-     * 게시글 생성
-     * body: Post(JSON) - title, content 등
-     */
+    // ========= 1) 게시글 생성 =========
     @PostMapping
     public Post create(@RequestBody Post req) {
         req.setUserId(mockUserId());
+        req.setUpdatedAt(Instant.now());
         return postRepo.save(req);
     }
 
-    /**
-     * 게시글 목록
-     * -> 간단하게 Post 엔티티 리스트만 반환
-     */
+    // ========= 2) 게시글 목록 (단순 버전, 나중에 page / size 추가 가능) =========
     @GetMapping
     public List<Post> list() {
+        // 최신 순으로 보고 싶으면 PostRepository 에 정렬 쿼리 추가해도 됨
         return postRepo.findAll();
     }
 
-    /**
-     * 게시글 상세
-     * - 게시글 기본 정보
-     * - 작성자 정보(User)
-     * - 이 글에 달린 댓글 목록 + 각 댓글 작성자
-     *
-     * 응답 타입: PostDetailResponse (아래 static class)
-     */
-    @GetMapping("/{id}")
-    public PostDetailResponse get(@PathVariable Long id) {
-        Post post = postRepo.findById(id).orElseThrow();
-
-        // 게시글 작성자
-        User author = userRepo.findById(post.getUserId())
-                .orElseThrow(() -> new RuntimeException("AUTHOR_NOT_FOUND"));
-
-        SimpleUser authorDto = new SimpleUser(author.getId(), author.getEmail(), author.getName());
-
-        // 댓글 목록
-        List<Comment> comments = commentRepo.findByPostIdOrderByCreatedAtAsc(id);
-
-        List<CommentDto> commentDtos = comments.stream().map(c -> {
-            User commentAuthor = userRepo.findById(c.getUserId())
-                    .orElseThrow(() -> new RuntimeException("COMMENT_AUTHOR_NOT_FOUND"));
-
-            SimpleUser commentUserDto =
-                    new SimpleUser(commentAuthor.getId(), commentAuthor.getEmail(), commentAuthor.getName());
-
-            return new CommentDto(
-                    c.getId(),
-                    c.getContent(),
-                    c.getCreatedAt(),
-                    commentUserDto
-            );
-        }).collect(Collectors.toList());
-
-        return new PostDetailResponse(
-                post.getId(),
-                post.getTitle(),
-                post.getContent(),
-                post.getCreatedAt(),
-                authorDto,
-                commentDtos
-        );
+    // ========= 3) 게시글 단순 조회 (엔티티 그대로) =========
+    @GetMapping("/{id}/raw")
+    public Post getRaw(@PathVariable Long id) {
+        return postRepo.findById(id).orElseThrow();
     }
 
-    /**
-     * 게시글 수정
-     */
+    // ========= 4) 게시글 상세 조회 + 댓글 목록 =========
+    @GetMapping("/{id}")
+    public PostDetailResponse detail(@PathVariable Long id) {
+        Post post = postRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("POST_NOT_FOUND"));
+
+        List<Comment> comments = commentRepo.findByPostIdOrderByCreatedAtAsc(id);
+
+        // 작성자
+        SimpleUser author = userRepo.findById(post.getUserId())
+                .map(SimpleUser::new)
+                .orElseGet(() -> new SimpleUser(null, "unknown", "unknown"));
+
+        // 댓글 DTO 변환
+        List<CommentDto> commentDtos = comments.stream()
+                .map(c -> {
+                    SimpleUser commentAuthor = userRepo.findById(c.getUserId())
+                            .map(SimpleUser::new)
+                            .orElseGet(() -> new SimpleUser(null, "unknown", "unknown"));
+                    return new CommentDto(c, commentAuthor);
+                })
+                .toList();
+
+        return new PostDetailResponse(post, author, commentDtos);
+    }
+
+    // ========= 5) 게시글 수정 =========
     @PatchMapping("/{id}")
     public Post update(@PathVariable Long id, @RequestBody Post req) {
         Post p = postRepo.findById(id).orElseThrow();
+
         if (!mockUserId().equals(p.getUserId())) {
             throw new RuntimeException("FORBIDDEN");
         }
-        p.setTitle(req.getTitle());
-        p.setContent(req.getContent());
+
+        // 수정 가능한 필드만 교체
+        if (req.getTitle() != null) p.setTitle(req.getTitle());
+        if (req.getContent() != null) p.setContent(req.getContent());
+        if (req.getPrice() != null) p.setPrice(req.getPrice());
+        if (req.getSize() != null) p.setSize(req.getSize());
+        if (req.getImageUrl() != null) p.setImageUrl(req.getImageUrl());
+
         p.setUpdatedAt(Instant.now());
         return postRepo.save(p);
     }
 
-    /**
-     * 게시글 삭제
-     */
+    // ========= 6) 게시글 삭제 =========
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         Post p = postRepo.findById(id).orElseThrow();
+
         if (!mockUserId().equals(p.getUserId())) {
             throw new RuntimeException("FORBIDDEN");
         }
+
         postRepo.deleteById(id);
     }
 
-    /**
-     * 댓글 생성
-     * 예: POST /posts/1/comments
-     * body: { "content": "댓글입니다" }
-     */
+    // ========= 7) 댓글 생성 =========
     @PostMapping("/{postId}/comments")
     public Comment addComment(@PathVariable Long postId,
                               @RequestBody CommentCreateRequest req) {
 
-        // 게시글 존재 여부 확인
         Post post = postRepo.findById(postId)
                 .orElseThrow(() -> new RuntimeException("POST_NOT_FOUND"));
 
         Comment comment = new Comment();
         comment.setPostId(post.getId());
-        comment.setUserId(mockUserId());          // 나중에 JWT에서 꺼내서 넣으면 됨
-        comment.setContent(req.getContent());
+        comment.setUserId(mockUserId());  // 나중에 JWT 붙이면 여기서 가져오기
+        comment.setContent(req.content);
         comment.setCreatedAt(Instant.now());
 
         return commentRepo.save(comment);
     }
 
-    // ================== 아래는 응답/요청용 DTO 클래스들 ==================
+    // ================== 내부 DTO들 ==================
 
-    /**
-     * 댓글 생성 요청 body
-     */
+    /** 댓글 생성용 요청 바디 */
     public static class CommentCreateRequest {
-        private String content;
-
-        public String getContent() {
-            return content;
-        }
-
-        public void setContent(String content) {
-            this.content = content;
-        }
+        public String content;
     }
 
-    /**
-     * 간단한 유저 정보 DTO (id / email / name)
-     */
+    /** 유저 정보 축약 형태 (id, email, name 정도만) */
     public static class SimpleUser {
         public Long id;
         public String email;
         public String name;
+
+        public SimpleUser(User u) {
+            this.id = u.getId();
+            this.email = u.getEmail();
+            this.name = u.getName();
+        }
 
         public SimpleUser(Long id, String email, String name) {
             this.id = id;
@@ -173,45 +148,43 @@ public class PostController {
         }
     }
 
-    /**
-     * 댓글 응답 DTO
-     */
+    /** 댓글 응답 DTO */
     public static class CommentDto {
         public Long id;
         public String content;
         public Instant createdAt;
         public SimpleUser author;
 
-        public CommentDto(Long id, String content, Instant createdAt, SimpleUser author) {
-            this.id = id;
-            this.content = content;
-            this.createdAt = createdAt;
+        public CommentDto(Comment c, SimpleUser author) {
+            this.id = c.getId();
+            this.content = c.getContent();
+            this.createdAt = c.getCreatedAt();
             this.author = author;
         }
     }
 
-    /**
-     * 게시글 상세 응답 DTO
-     * - 게시글 + 작성자 + 댓글 리스트
-     */
+    /** 게시글 + 작성자 + 댓글까지 한 번에 내려줄 DTO */
     public static class PostDetailResponse {
         public Long id;
         public String title;
         public String content;
+        public Integer price;
+        public String size;
+        public String imageUrl;
         public Instant createdAt;
         public SimpleUser author;
         public List<CommentDto> comments;
 
-        public PostDetailResponse(Long id,
-                                  String title,
-                                  String content,
-                                  Instant createdAt,
+        public PostDetailResponse(Post post,
                                   SimpleUser author,
                                   List<CommentDto> comments) {
-            this.id = id;
-            this.title = title;
-            this.content = content;
-            this.createdAt = createdAt;
+            this.id = post.getId();
+            this.title = post.getTitle();
+            this.content = post.getContent();
+            this.price = post.getPrice();
+            this.size = post.getSize();
+            this.imageUrl = post.getImageUrl();
+            this.createdAt = post.getCreatedAt();
             this.author = author;
             this.comments = comments;
         }
