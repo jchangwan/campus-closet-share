@@ -1,0 +1,10 @@
+# --- AI Engine (CLIP + FAISS) ---
+faiss-cpu
+transformers
+torch
+Pillow
+
+# --- API Server (FastAPI) ---
+fastapi
+uvicorn
+python-multipart
