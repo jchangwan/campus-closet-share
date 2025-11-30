@@ -1,4 +1,4 @@
-package com.campus.api.message;
+package com.campus.api;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
