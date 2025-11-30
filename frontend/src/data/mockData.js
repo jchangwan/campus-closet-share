@@ -147,6 +147,17 @@ export const allMockClosetItems = [
 // 3. '옷 대상' 쪽지방 데이터
 export const mockChatRooms = [
   {
+    id: 'admin',
+    withUser: '관리자',
+    itemId: null,
+    itemTitle: '공지사항',
+    itemImageUrl: 'https://placehold.co/100x100/E3F2FD/1565C0?text=Notice',
+    messages: [
+      { sender: '관리자', text: '쪽지를 통해 대여가 된 옷은 해당 게시글에 들어가 대여 상태를 변경하여야 합니다' }
+    ]
+  },
+
+  {
     id: 'chat1',
     itemId: 1,
     itemTitle: '봄 트렌치 코트 (M)',

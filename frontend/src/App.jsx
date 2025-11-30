@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
-import { allMockClosetItems, mockSocialPosts } from './data/mockData';
+import { mockSocialPosts } from './data/mockData';
+import { getMyProfile, updateMyProfile } from './api/users';
 
 // 공통 컴포넌트
 import Navbar from './components/Navbar';
@@ -28,23 +29,43 @@ export default function App() {
     name: '클로젯셰어'
   });
   
-  const [closetItems, setClosetItems] = useState(allMockClosetItems);
+  // Feed 데이터는 ClosetFeedSection 내부에서 실제 API(/posts)를 호출해 사용합니다.
+  // 이 상태는 더 이상 사용하지 않습니다.
+  const [closetItems, setClosetItems] = useState([]);
+
+  // 게시글 수정 처리 핸들러 (추가됨)
   const [socialPosts, setSocialPosts] = useState(mockSocialPosts);
   const [initialFeedItem, setInitialFeedItem] = useState(null);
 
   // --- 핸들러 (Handlers) ---
 
   const handleLogin = (email, password) => {
-    if (email === 'student@kyonggi.ac.kr' && password === '1234') { 
-      setIsAuthenticated(true);
-      setCurrentUser({
-        email: email,
-        university: '경기대학교',
-        profileImageUrl: 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=Profile',
-        name: '클로젯셰어' 
-      });
-      return true;
+if (email === 'student@kyonggi.ac.kr' && password === '1234') { 
+  setIsAuthenticated(true);
+  // 기본 프로필은 로그인 이메일 기반으로 먼저 설정
+  setCurrentUser({
+    email: email,
+    university: '경기대학교',
+    profileImageUrl: 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=Profile',
+    name: '클로젯셰어'
+  });
+  // 백엔드 프로필이 있다면 덮어쓰기
+  (async () => {
+    try {
+      const profile = await getMyProfile();
+      setCurrentUser(prev => ({
+        ...prev,
+        email: profile.email || prev.email,
+        name: profile.nickname || prev.name,
+        bio: profile.bio,
+        profileImageUrl: profile.profileImageUrl || prev.profileImageUrl,
+      }));
+    } catch (e) {
+      console.error('Failed to load profile from API', e);
     }
+  })();
+  return true;
+}
     return false;
   };
   
@@ -53,20 +74,30 @@ export default function App() {
     setCurrentUser({ email: '', university: '', profileImageUrl: '', name: '' });
   };
 
-  const handleUpdateProfile = (updatedProfile) => {
-    setCurrentUser(prevUser => ({
-      ...prevUser,
-      ...updatedProfile
-    }));
+const handleUpdateProfile = (updatedProfile) => {
+  // 1) Optimistically update local state
+  setCurrentUser(prevUser => ({
+    ...prevUser,
+    ...updatedProfile
+  }));
+  // 2) 실제 API 호출 (닉네임/한줄소개/프로필 이미지 중심으로 전송)
+  const payload = {
+    nickname: updatedProfile.name || currentUser.name,
+    bio: updatedProfile.bio || currentUser.bio,
+    profileImageUrl: updatedProfile.profileImageUrl || currentUser.profileImageUrl,
   };
+  (async () => {
+    try {
+      await updateMyProfile(payload);
+    } catch (e) {
+      console.error('Failed to update profile via API', e);
+    }
+  })();
+};
+// ★★★ [추가됨] 상태 및 반납일 업데이트 핸들러 ★★★
 
-  const handleToggleBookmark = (itemId) => {
-    setClosetItems(prevItems =>
-      prevItems.map(item =>
-        item.id === itemId ? { ...item, isBookmarked: !item.isBookmarked } : item
-      )
-    );
-  };
+  // ★ [핸들러 추가] 직접 대여 내역 등록하기
+
   
   const handleToggleSave = (postId) => {
     setSocialPosts(prevPosts =>
@@ -74,11 +105,6 @@ export default function App() {
         post.id === postId ? { ...post, isSaved: !post.isSaved } : item
       )
     );
-  };
-  
-  const handleViewMyItem = (itemId) => {
-    setInitialFeedItem(itemId); 
-    navigate('/feed');          
   };
 
   // --- (ProtectedRoute - 원본과 동일) ---
@@ -126,21 +152,13 @@ export default function App() {
             <Route 
               path="/feed" 
               element={
-                <ClosetFeedSection 
-                  closetItems={closetItems}
-                  onToggleBookmark={handleToggleBookmark}
-                  initialItemId={initialFeedItem}
-                  onClearInitialItem={() => setInitialFeedItem(null)}
-                />
+                            <ClosetFeedSection />
               } 
             />
             <Route 
               path="/social" 
               element={
-                <SocialFeedSection 
-                  socialPosts={socialPosts}
-                  onToggleSave={handleToggleSave}
-                />
+                                <SocialFeedSection socialPosts={socialPosts} onToggleSave={handleToggleSave} />
               } 
             />
           </Route>
@@ -154,8 +172,8 @@ export default function App() {
                   currentUser={currentUser}
                   onUpdateProfile={handleUpdateProfile}
                   allClosetItems={closetItems}
-                  allSocialPosts={socialPosts}
-                  handleViewMyItem={handleViewMyItem} 
+                  allSocialPosts={socialPosts} 
+                  onToggleSave={handleToggleSave}
                 />
               } 
             />
