@@ -1,6 +1,9 @@
-package com.campus.api.message;
+package com.campus.api;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
 import java.util.List;
 
 @RestController
@@ -13,53 +16,70 @@ public class MessageController {
         this.repo = repo;
     }
 
-    private Long mockUserId() { return 1L; } // 로그인 붙기 전 임시
-
-    // ==================== 쪽지 보내기 ============================
-    @PostMapping
-    public Message sendMessage(@RequestBody SendMessageRequest req) {
-
-        Message msg = new Message(
-                mockUserId(),          // sender
-                req.receiverId,
-                req.postId,
-                req.content
-        );
-
-        return repo.save(msg);
+    // 로그인 붙기 전까지는 임시로 userId = 1 고정
+    private Long mockUserId() {
+        return 1L;
     }
 
-    // ==================== 받은 쪽지함 ============================
+    // 받은 메시지함 (inbox)
     @GetMapping("/inbox")
     public List<Message> inbox() {
-        return repo.findByReceiverIdOrderByCreatedAtDesc(mockUserId());
+        Long userId = mockUserId();
+        return repo.findByReceiverIdOrderByCreatedAtDesc(userId);
     }
 
-    // ==================== 보낸 쪽지함 ============================
+    // 보낸 메시지함 (sent)
     @GetMapping("/sent")
     public List<Message> sent() {
-        return repo.findBySenderIdOrderByCreatedAtDesc(mockUserId());
+        Long userId = mockUserId();
+        return repo.findBySenderIdOrderByCreatedAtDesc(userId);
     }
 
-    // ==================== 특정 쪽지 읽기 ============================
-    @GetMapping("/{id}")
-    public Message readMessage(@PathVariable Long id) {
-        Message msg = repo.findById(id).orElseThrow();
-        if (!msg.getReceiverId().equals(mockUserId())) {
-            throw new RuntimeException("권한 없음");
-        }
-        msg.setRead(true);
-        return repo.save(msg);
-    }
-
-    // ==================== 읽지 않은 쪽지 개수 ============================
+    // 읽지 않은 메시지 개수
     @GetMapping("/unread-count")
     public UnreadResponse unreadCount() {
-        int cnt = repo.countByReceiverIdAndIsReadFalse(mockUserId());
-        return new UnreadResponse(cnt);
+        Long userId = mockUserId();
+        int count = repo.countByReceiverIdAndIsReadFalse(userId);
+        return new UnreadResponse(count);
     }
 
-    // ==================== DTO ============================
+    // 메시지 보내기
+    @PostMapping
+    public Message send(@RequestBody SendMessageRequest req) {
+        Long senderId = mockUserId();
+
+        Message m = new Message();
+        m.setSenderId(senderId);
+        m.setReceiverId(req.receiverId);
+        m.setPostId(req.postId);
+        m.setContent(req.content);
+
+        return repo.save(m);
+    }
+
+    // ===== 새로 추가: 메시지 삭제 =====
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
+        Long userId = mockUserId();
+
+        Message m = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Message not found"));
+
+        // 보낸 사람이나 받은 사람 둘 중 하나만 삭제 가능
+        if (!m.getSenderId().equals(userId) && !m.getReceiverId().equals(userId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You can delete only your own messages"
+            );
+        }
+
+        repo.delete(m);
+    }
+
+    // ==== 요청/응답 DTO ====
+
     public static class SendMessageRequest {
         public Long receiverId;
         public Long postId;

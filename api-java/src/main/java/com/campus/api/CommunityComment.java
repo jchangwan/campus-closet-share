@@ -5,17 +5,17 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "comments")
-public class Comment {
+@Table(name = "community_comments")
+public class CommunityComment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 어떤 게시글에 달린 댓글인지
+    // 어떤 커뮤니티 글에 달린 댓글인지
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "post_id")
-    private Post post;
+    private CommunityPost post;
 
     // 댓글 작성자
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
@@ -28,8 +28,6 @@ public class Comment {
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    // ===== 라이프사이클 콜백 =====
-
     @PrePersist
     public void onCreate() {
         if (createdAt == null) {
@@ -37,13 +35,10 @@ public class Comment {
         }
     }
 
-    // ===== 생성자 =====
-
-    protected Comment() {
-        // JPA 기본 생성자
+    protected CommunityComment() {
     }
 
-    public Comment(Post post, User author, String content) {
+    public CommunityComment(CommunityPost post, User author, String content) {
         this.post = post;
         this.author = author;
         this.content = content;
@@ -55,11 +50,11 @@ public class Comment {
         return id;
     }
 
-    public Post getPost() {
+    public CommunityPost getPost() {
         return post;
     }
 
-    public void setPost(Post post) {
+    public void setPost(CommunityPost post) {
         this.post = post;
     }
 

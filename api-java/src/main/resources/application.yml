@@ -5,9 +5,9 @@ spring:
       - org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration
 
   datasource:
-    url: jdbc:mysql://db:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
-    username: root
-    password: password
+    url: jdbc:mysql://127.0.0.1:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+    username: User
+    password: 1234
     hikari:
       initializationFailTimeout: -1
 
@@ -18,3 +18,8 @@ spring:
 
 server:
   port: 8080
+
+
+ai:
+  recommend:
+    url: http://ai-model:8000/recommend

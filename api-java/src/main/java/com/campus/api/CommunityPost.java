@@ -5,16 +5,16 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "posts")
-public class Post {
+@Table(name = "community_posts")
+public class CommunityPost {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 작성자 ID (User 엔티티의 id를 참조)
-    @Column(nullable = false)
-    private Long userId;
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id")
+    private User author;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -22,17 +22,20 @@ public class Post {
     @Column(nullable = false, length = 4000)
     private String content;
 
-    // 대표 이미지 (선택)
     @Column(length = 500)
-    private String imageUrl;
+    private String thumbnailUrl;
+
+    @Column(nullable = false)
+    private int likeCount = 0;
+
+    @Column(nullable = false)
+    private int commentCount = 0;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
     @Column(nullable = false)
     private Instant updatedAt;
-
-    // ===== 라이프사이클 =====
 
     @PrePersist
     public void onCreate() {
@@ -46,31 +49,26 @@ public class Post {
         this.updatedAt = Instant.now();
     }
 
-    // ===== 생성자 =====
-
-    protected Post() {
-        // JPA 기본 생성자
+    protected CommunityPost() {
     }
 
-    public Post(Long userId, String title, String content, String imageUrl) {
-        this.userId = userId;
+    public CommunityPost(User author, String title, String content, String thumbnailUrl) {
+        this.author = author;
         this.title = title;
         this.content = content;
-        this.imageUrl = imageUrl;
+        this.thumbnailUrl = thumbnailUrl;
     }
-
-    // ===== Getter / Setter =====
 
     public Long getId() {
         return id;
     }
 
-    public Long getUserId() {
-        return userId;
+    public User getAuthor() {
+        return author;
     }
 
-    public void setUserId(Long userId) {
-        this.userId = userId;
+    public void setAuthor(User author) {
+        this.author = author;
     }
 
     public String getTitle() {
@@ -89,12 +87,28 @@ public class Post {
         this.content = content;
     }
 
-    public String getImageUrl() {
-        return imageUrl;
+    public String getThumbnailUrl() {
+        return thumbnailUrl;
     }
 
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+    public void setThumbnailUrl(String thumbnailUrl) {
+        this.thumbnailUrl = thumbnailUrl;
+    }
+
+    public int getLikeCount() {
+        return likeCount;
+    }
+
+    public void setLikeCount(int likeCount) {
+        this.likeCount = likeCount;
+    }
+
+    public int getCommentCount() {
+        return commentCount;
+    }
+
+    public void setCommentCount(int commentCount) {
+        this.commentCount = commentCount;
     }
 
     public Instant getCreatedAt() {
@@ -103,9 +117,5 @@ public class Post {
 
     public Instant getUpdatedAt() {
         return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
     }
 }
