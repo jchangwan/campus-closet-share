@@ -27,7 +27,7 @@ export default function SignupPage({ onSignup }) {
     navigate('/my-page'); 
   };
 
-  // ★ 일반 버튼에 적용할 스타일 클래스
+  
   const buttonClass = "ml-3 w-auto !py-2.5 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300";
 
   return (
@@ -52,7 +52,7 @@ export default function SignupPage({ onSignup }) {
         </div>
         {error && <p className="text-red-500 text-sm italic mb-2">{error}</p>}
         
-        {/* ★ TrendyButton을 일반 button으로 변경 */}
+        
         <button type="submit" className={buttonClass}>
           가입하기
         </button>

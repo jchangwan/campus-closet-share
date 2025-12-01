@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { HeartIcon } from '../components/Icons';
-import { mockUser, mockClosetItemComments } from '../data/mockData';
+import { listPosts, getPost, createPostWithImages, updatePost, deletePost } from '../api/posts';
+import { createComment } from '../api/comments';
 
 // ★ 그라데이션 버튼 스타일
 const buttonClass = "w-auto bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300";
@@ -11,29 +12,55 @@ const textSearchButtonClass = "w-auto rounded-l-none !py-3 px-6 bg-gradient-to-r
 const aiButtonClass = "w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 disabled:opacity-50";
 
 
-// 1. App.jsx로부터 props 받기
-export default function ClosetFeedSection({ closetItems, onToggleBookmark, initialItemId, onClearInitialItem }) {
-  const [closetPage, setClosetPage] = useState('list'); 
-  const [selectedItemId, setSelectedItemId] = useState(null);
+// 1. 실제 API로부터 데이터를 불러오는 피드 섹션
+export default function ClosetFeedSection() {
   const navigate = useNavigate();
   const location = useLocation();
-  const ITEMS_PER_PAGE = 5; 
+  const ITEMS_PER_PAGE = 5;
+  const [closetItems, setClosetItems] = useState([]);
+  const [feedPage, setFeedPage] = useState(0);
+  const [feedLast, setFeedLast] = useState(false);
 
-  // 2. MyPage에서 '새 옷 등록' 클릭 시 바로 등록 탭으로 이동
+  // 초기 피드 로드
   useEffect(() => {
-    if (location.state?.openUpload) {
+    async function loadInitial() {
+      try {
+        const data = await listPosts({ page: 0, size: 20, sort: 'createdAt,desc' });
+        setClosetItems(data.content || []);
+        setFeedPage(data.page || 0);
+        setFeedLast(!!data.last);
+      } catch (e) {
+        console.error('Failed to load feed', e);
+      }
+    }
+    loadInitial();
+  }, []);
+
+  
+
+  // ★★★ 1. 페이지 모드 결정 (초기값 설정 통합) ★★★
+  // 들어올 때부터 "글쓰기"인지 "상세보기"인지 "목록"인지 딱 정하고 시작합니다.
+  const [closetPage, setClosetPage] = useState(() => {
+    if (location.state?.itemId) return 'detail';      // 1. 아이템 ID가 있으면 -> 상세 페이지
+    if (location.state?.openUpload) return 'upload';  // 2. 업로드 요청이 있으면 -> 글쓰기 페이지
+    return 'list';                                    // 3. 아무것도 없으면 -> 목록
+  });
+  
+  // ★★★ 2. 선택된 아이템 ID 설정 ★★★
+  const [selectedItemId, setSelectedItemId] = useState(() => 
+    location.state?.itemId || null
+  );
+
+  // ★★★ 3. useEffect는 이제 보조 역할만 합니다 ★★★
+  // 이미 들어와 있는 상태에서 URL state가 바뀌었을 때를 대비해 남겨둡니다.
+  useEffect(() => {
+    if (location.state?.itemId) {
+      setSelectedItemId(location.state.itemId);
+      setClosetPage('detail');
+    } else if (location.state?.openUpload) {
       setClosetPage('upload');
     }
   }, [location.state]);
-
-  // 3. MyPage에서 아이템 클릭 시 바로 상세 탭으로 이동
-  useEffect(() => {
-      if (initialItemId) {
-          setSelectedItemId(initialItemId);
-          setClosetPage('detail');
-          onClearInitialItem(); // App.jsx의 상태 초기화
-      }
-  }, [initialItemId, onClearInitialItem]);
   
   // --- (Part 4-1) 옷장 피드 메인 ---
   function ClosetFeedPage() {
@@ -67,7 +94,12 @@ export default function ClosetFeedSection({ closetItems, onToggleBookmark, initi
         <div className="p-4">
           <div className="flex justify-between items-start">
             <h3 className="text-lg font-bold text-gray-900 flex-1 pr-2">{item.title}</h3>
-            <button onClick={(e) => { e.stopPropagation(); onToggleBookmark(item.id); }} className="p-1 -mt-1 -mr-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setClosetItems(prev => prev.map(it => it.id === item.id ? { ...it, isBookmarked: !it.isBookmarked } : it));
+              }}
+              className="p-1 -mt-1 -mr-1">
               <HeartIcon filled={item.isBookmarked} />
             </button>
           </div>
@@ -86,15 +118,46 @@ export default function ClosetFeedSection({ closetItems, onToggleBookmark, initi
     );
   }
   
-  // --- (Part 4-2) 옷 상세 페이지 ---
-  function ItemDetailPage() {
-    const item = closetItems.find(i => i.id === selectedItemId); 
-    const [comments, setComments] = useState(mockClosetItemComments[selectedItemId] || []);
-    const [newComment, setNewComment] = useState('');
+  // --- (Part 4-2) 옷 상세 페이지 (수정본: 메뉴 + 상태변경 모달 추가) ---
+function ItemDetailPage() {
+  const [item, setItem] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+
+  useEffect(() => {
+    if (!selectedItemId) return;
+    (async () => {
+      try {
+        const data = await getPost(selectedItemId);
+        if (data.post) {
+          setItem(data.post);
+          setComments(data.comments || []);
+        } else {
+          // fallback 형식
+          setItem(data);
+          setComments(data.comments || []);
+        }
+      } catch (e) {
+        console.error('failed to load post detail', e);
+      }
+    })();
+  }, [selectedItemId]);
     
+    // ★ 1. 메뉴와 모달을 위한 새로운 State들
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+    const [editingItem, setEditingItem] = useState(null);
+    const [tempStatus, setTempStatus] = useState(item?.status || 'available');
+    const [tempReturnDate, setTempReturnDate] = useState(item?.returnDate || '');
+
     if (!item) return <p>아이템을 찾을 수 없습니다.</p>;
+
+    // ★ 2. 내 옷인지 확인 (작성자 이름으로 비교)
+    //const isMyItem = mockUser.name === item.author;
+    //테스트를 위해 무조건 true로 설정!
+    const isMyItem = true;
     
-    // 4. navigateToMessages 대신 navigate 훅 사용
+    // 쪽지 보내기 핸들러 (기존 유지)
     const handleSendMessageClick = () => { 
       navigate('/messages', { 
         state: { 
@@ -103,18 +166,94 @@ export default function ClosetFeedSection({ closetItems, onToggleBookmark, initi
       }); 
     };
     
-    const handleCommentSubmit = (e) => {
-        e.preventDefault();
-        if(!newComment.trim()) return;
-        const commentToAdd = { id: Date.now(), author: mockUser.name, text: newComment };
-        setComments([...comments, commentToAdd]);
+    // 댓글 등록 핸들러 (기존 유지)
+const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    if(!newComment.trim() || !item) return;
+    try {
+      const saved = await createComment(item.id, newComment.trim());
+      setComments(prev => [...prev, saved]);
+      setNewComment('');
+    } catch (err) {
+      console.error('failed to create comment', err);
+      alert('댓글 작성 중 오류가 발생했습니다.');
+    }
         setNewComment('');
+    };
+
+    // ★ 3. 상태 변경 저장 핸들러 (수정됨: 부모에게 알리기)
+    const handleSaveStatus = () => {
+// 1. 서버에 상태 업데이트 요청
+(async () => {
+  try {
+    const serverStatus = tempStatus === 'available' ? 'AVAILABLE' : 'RENTED';
+    const updated = await updatePost(item.id, { rentalStatus: serverStatus });
+    // 로컬 리스트에도 반영
+    setClosetItems(prev => prev.map(it => it.id === item.id ? { ...it, rentalStatus: updated.rentalStatus } : it));
+    alert(`상태가 변경되었습니다! [${tempStatus === 'available' ? '대여 가능' : '대여중'}]`);
+  } catch (e) {
+    console.error('failed to update status', e);
+    alert('상태 변경 중 오류가 발생했습니다.');
+  }
+})();
+
+// 2. 모달 닫기
+      setIsStatusModalOpen(false);
+      setIsMenuOpen(false);
     };
     
     return (
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-2xl overflow-hidden">
-        <button onClick={() => setClosetPage('list')} className="text-indigo-600 p-4 hover:underline">&larr; 피드로 돌아가기</button>
-        <img src={item.imageUrl} alt={item.title} className="w-full h-96 object-cover" />
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-2xl overflow-hidden relative">
+        
+        {/* ★ 4. 상단 네비게이션 바 (뒤로가기 + 점 3개 메뉴) */}
+        <div className="flex justify-between items-center p-4 absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 to-transparent z-10">
+          <button onClick={() => setClosetPage('list')} className="text-white font-bold hover:underline drop-shadow-md">&larr; 피드로 돌아가기</button>
+          
+          {/* 내 옷일 때만 메뉴 버튼 보이기 */}
+          {isMyItem && (
+            <div className="relative">
+              <button 
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="text-white font-bold text-2xl focus:outline-none drop-shadow-md px-2"
+              >
+                ⋮
+              </button>
+              
+              {/* 드롭다운 메뉴 */}
+              {isMenuOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-xl py-2 border border-gray-100 z-20">
+                  <button 
+                    onClick={() => { setIsStatusModalOpen(true); setTempStatus(item.status); }}
+                    className="block w-full text-left px-4 py-3 text-sm text-indigo-600 font-bold hover:bg-gray-50"
+                  >
+                    🔄 상태 변경하기
+                  </button>
+                  <div className="border-t my-1"></div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditingItem(item); setClosetPage('upload'); setIsMenuOpen(false); }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    ✎ 게시글 수정
+                  </button>
+                  <button className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50">
+                    🗑️ 삭제하기
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 이미지 영역 (대여중 배지 추가) */}
+        <div className="relative">
+          <img src={item.imageUrl} alt={item.title} className="w-full h-96 object-cover" />
+          {item.status === 'rented' && (
+            <div className="absolute bottom-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm font-bold backdrop-blur-sm">
+              🔴 대여중 {item.returnDate && `(~${item.returnDate})`}
+            </div>
+          )}
+        </div>
+
         <div className="p-6">
           <div className="flex justify-between items-start">
             <div>
@@ -129,12 +268,56 @@ export default function ClosetFeedSection({ closetItems, onToggleBookmark, initi
             </div>
           </div>
           <p className="text-gray-700 mt-4 whitespace-pre-wrap">{item.description}</p>
-          {/* ★ 5. 버튼 스타일 적용 */}
+          
           <button onClick={handleSendMessageClick} className={`${aiButtonClass} mt-6`} disabled={item.status === 'rented'}>
             {item.status === 'rented' ? '현재 대여중입니다' : '대여 신청하기 (쪽지)'}
           </button>
         </div>
-        {/* 댓글 섹션 */}
+
+        {/* ★ 5. 상태 변경 모달 (팝업창) */}
+        {isStatusModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up">
+              <div className="bg-gray-100 p-4 border-b flex justify-between items-center">
+                <h3 className="font-bold text-lg text-gray-800">대여 상태 변경</h3>
+                <button onClick={() => setIsStatusModalOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+              </div>
+              <div className="p-6 space-y-6">
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => setTempStatus('available')}
+                    className={`py-3 rounded-lg font-bold border-2 transition-all ${tempStatus === 'available' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}
+                  >
+                    🟢 대여 가능
+                  </button>
+                  <button 
+                    onClick={() => setTempStatus('rented')}
+                    className={`py-3 rounded-lg font-bold border-2 transition-all ${tempStatus === 'rented' ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}
+                  >
+                    🔴 대여중
+                  </button>
+                </div>
+                {tempStatus === 'rented' && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">반납 예정일</label>
+                    <input 
+                      type="date" 
+                      value={tempReturnDate}
+                      onChange={(e) => setTempReturnDate(e.target.value)}
+                      className="w-full p-3 border rounded-md focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-gray-700"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="p-4 border-t flex space-x-3">
+                <button onClick={() => setIsStatusModalOpen(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 transition">취소</button>
+                <button onClick={handleSaveStatus} className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-lg transition">확인 (저장)</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 댓글 섹션 (기존 유지) */}
         <div className="p-6 border-t border-gray-200">
           <h4 className="text-lg font-semibold mb-4">상품 문의 ({comments.length})</h4>
           <div className="space-y-4 mb-4">
@@ -148,6 +331,7 @@ export default function ClosetFeedSection({ closetItems, onToggleBookmark, initi
       </div>
     );
   }
+  
 
   // --- (Part 4-3) 옷 등록 페이지 ---
   function UploadClosetItemPage() { 
