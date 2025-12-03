@@ -1,10 +1,7 @@
-# --- AI Engine (CLIP + FAISS) ---
-faiss-cpu
-transformers
+flask
+numpy>=1.26.0
 torch
-Pillow
-
-# --- API Server (FastAPI) ---
-fastapi
-uvicorn
-python-multipart
+torchvision
+sentence-transformers
+faiss-cpu
+pillow
