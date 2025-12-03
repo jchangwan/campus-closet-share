@@ -1,54 +1,102 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-
-// TrendyButton 임포트 제거
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 
 export default function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState('student@kyonggi.ac.kr'); // 테스트 편의를 위한 기본값
-  const [password, setPassword] = useState('1234'); // 테스트 편의를 위한 기본값
-  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleSubmit = (e) => {
+  // 회원가입 후 돌아왔을 때 미리 채워줄 이메일 (기존 로직 유지)
+  const presetEmail = (location.state && location.state.presetEmail) || '';
+
+  const [email, setEmail] = useState(presetEmail);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const buttonClass = "w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition duration-300 disabled:opacity-50";
+
+  useEffect(() => {
+    if (presetEmail) setEmail(presetEmail);
+  }, [presetEmail]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const loginSuccess = onLogin(email, password); // 부모의 로그인 함수 호출
-    
-    if (loginSuccess) {
-      setError('');
-      navigate('/my-page'); // 성공 시 마이페이지로 이동
-    } else {
-      setError('학교 이메일 또는 비밀번호가 올바르지 않습니다.');
+    setError('');
+
+    if (!email || !password) {
+      setError('이메일과 비밀번호를 모두 입력해주세요.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // App.jsx에서 내려준 handleLogin 함수 호출
+      const success = await onLogin(email, password);
+      if (!success) {
+        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+        return;
+      }
+      
+      // 로그인 성공 시 피드로 이동
+      const redirectTo = (location.state && location.state.from) || '/feed';
+      navigate(redirectTo, { replace: true });
+
+    } catch (err) {
+      console.error('로그인 중 오류', err);
+      setError('로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const buttonClass = "w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300";
-
   return (
-    <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-2xl">
-      <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">로그인</h2>
-      <p className="text-center text-gray-600 mb-6">학교 이메일 계정으로 로그인하세요.</p>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="login-email">학교 이메일</label>
-          <input type="email" id="login-email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-3 border rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="student@school.ac.kr" required />
-        </div>
-        <div>
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="login-password">비밀번호</label>
-          <input type="password" id="login-password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-3 border rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="********" required />
-        </div>
-        {error && <p className="text-red-500 text-sm italic mb-2">{error}</p>}
-        
-        {/* ★ TrendyButton을 일반 button으로 변경 */}
-        <button type="submit" className={buttonClass}>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="max-w-md w-full bg-white rounded-xl shadow-md p-8">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">
           로그인
-        </button>
-      </form>
-      <p className="text-center text-gray-600 text-sm mt-6">
-        계정이 없으신가요?{' '}
-        <Link to="/signup" className="font-bold text-indigo-600 hover:text-indigo-800">
-          회원가입
-        </Link>
-      </p>
+        </h2>
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              학교 이메일
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="예: student@kyonggi.ac.kr"
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              비밀번호
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="비밀번호를 입력하세요"
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-500 text-sm text-center mt-2">{error}</p>
+          )}
+
+          <button type="submit" className={buttonClass} disabled={loading}>
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
+        </form>
+
+        <p className="text-center text-gray-600 mt-6 text-sm">
+          아직 계정이 없으신가요?{' '}
+          <Link to="/signup" className="text-indigo-600 font-bold hover:underline">
+            회원가입
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }
