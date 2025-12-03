@@ -1,43 +1,47 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
+import { signup, sendVerificationEmail, confirmVerificationCode } from '../api/auth';
 
-export default function SignupPage({ onSignup }) { 
-  // 1. 상태 관리
-  const [personalEmail, setPersonalEmail] = useState('');
-  const [emailLocalPart, setEmailLocalPart] = useState('');
+export default function SignupPage() { 
+  const navigate = useNavigate();
+  const SCHOOL_DOMAIN = '@kyonggi.ac.kr';
+
+  // 1. 입력 상태
+  const [emailLocalPart, setEmailLocalPart] = useState(''); // 학번/아이디
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
-  // 인증 관련 상태
+  const [nickname, setNickname] = useState(''); // ★ 백엔드 필수 필드
+  const [university, setUniversity] = useState('경기대학교'); // 기본값
+
+  // 2. 인증 관련 상태 (친구분 코드 로직)
   const [authCode, setAuthCode] = useState('');
-  const [authStep, setAuthStep] = useState('input');
+  const [authStep, setAuthStep] = useState('input'); // 'input' | 'sent' | 'verified'
   const [isVerified, setIsVerified] = useState(false);
   
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
-  const navigate = useNavigate();
-  const SCHOOL_DOMAIN = '@kyonggi.ac.kr';
+
+  // 완성된 이메일 계산
+  const fullEmail = emailLocalPart ? `${emailLocalPart.trim()}${SCHOOL_DOMAIN}` : '';
 
   // [기능 1] 인증 메일 발송
   const handleSendVerification = async () => {
     if (!emailLocalPart) {
-      setError('학번을 입력해주세요.');
+      setError('학교 이메일 아이디를 입력해주세요.');
       return;
     }
     setError('');
     setIsLoading(true);
 
     try {
-      await axios.post('/auth/email-verification', {
-        email: emailLocalPart + SCHOOL_DOMAIN
-      });
-      alert(`인증 메일이 발송되었습니다!\n${emailLocalPart + SCHOOL_DOMAIN}을 확인해주세요.`);
+      await sendVerificationEmail(fullEmail);
+      alert(`인증 메일이 발송되었습니다!\n${fullEmail}을 확인해주세요.`);
       setAuthStep('sent'); 
     } catch (err) {
       console.error(err);
-      setError('메일 발송 실패. 학번을 확인하거나 다시 시도해주세요.');
+      // 백엔드 미구현 시 테스트용 (필요하면 주석 해제)
+      // alert('(테스트) 인증 메일 발송 성공 (가짜)'); setAuthStep('sent');
+      setError('메일 발송 실패. (백엔드 연결을 확인해주세요)');
     } finally {
       setIsLoading(false);
     }
@@ -53,10 +57,7 @@ export default function SignupPage({ onSignup }) {
     setIsLoading(true);
 
     try {
-      await axios.post('/auth/email-verification/confirm', {
-        email: emailLocalPart + SCHOOL_DOMAIN,
-        code: authCode
-      });
+      await confirmVerificationCode(fullEmail, authCode);
       alert('✅ 학교 인증이 완료되었습니다!');
       setAuthStep('verified');
       setIsVerified(true);
@@ -71,6 +72,13 @@ export default function SignupPage({ onSignup }) {
   // [기능 3] 최종 회원가입
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+
+    // 유효성 검사
+    if (!nickname.trim()) {
+      setError('닉네임을 입력해주세요.');
+      return;
+    }
     if (password !== confirmPassword) { 
       setError('비밀번호가 일치하지 않습니다.'); 
       return; 
@@ -82,15 +90,20 @@ export default function SignupPage({ onSignup }) {
 
     try {
       setIsLoading(true);
-      await axios.post('/auth/signup', {
-        emailLocalPart: emailLocalPart,
+      
+      // ★ 스펙(2-2-1)에 맞춰 데이터 전송
+      await signup({
+        email: fullEmail,
         password: password,
-        personalEmail: personalEmail
+        nickname: nickname, // 필수 포함
+        university: university
       });
 
-      console.log('회원가입 성공');
-      onSignup();
-      navigate('/my-page');
+      alert('회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.');
+      navigate('/login', {
+        replace: true, 
+        state: { presetEmail: fullEmail } 
+      });
 
     } catch (err) {
       console.error(err);
@@ -100,10 +113,8 @@ export default function SignupPage({ onSignup }) {
     }
   };
 
-  // --- 스타일 정의 (디자인 유지) ---
+  // 스타일
   const inputClass = "w-full px-4 py-3 border rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500";
-  
-  // ★ 수정됨: w-auto(자동너비) -> w-full(꽉찬너비)로 변경, ml-3(왼쪽여백) 제거
   const buttonClass = "w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed";
 
   return (
@@ -112,32 +123,19 @@ export default function SignupPage({ onSignup }) {
       
       <form onSubmit={handleSubmit} className="space-y-6">
         
-        {/* 1. 개인 이메일 */}
-        <div>
-          <label className="block text-gray-700 text-sm font-bold mb-2">개인 이메일</label>
-          <input 
-            type="email" 
-            value={personalEmail} 
-            onChange={(e) => setPersonalEmail(e.target.value)} 
-            className={inputClass} 
-            placeholder="example@naver.com" 
-            required 
-          />
-        </div>
-
-        {/* 2. 학교 이메일 인증 */}
+        {/* 1. 학교 이메일 인증 */}
         <div>
           <label className="block text-gray-700 text-sm font-bold mb-2">학교 이메일 인증</label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <input 
               type="text" 
               value={emailLocalPart} 
               onChange={(e) => setEmailLocalPart(e.target.value)} 
               className={inputClass} 
-              placeholder="학교 이메일을 입력하세요" 
+              placeholder="학번 입력" 
               disabled={authStep === 'verified'} 
             />
-            <span className="py-3 text-gray-500 font-bold whitespace-nowrap">@kyonggi.ac.kr</span>
+            <span className="text-gray-500 font-bold whitespace-nowrap">{SCHOOL_DOMAIN}</span>
           </div>
 
           {authStep === 'input' && (
@@ -152,7 +150,7 @@ export default function SignupPage({ onSignup }) {
           )}
 
           {authStep === 'sent' && (
-            <div className="mt-3 p-3 bg-gray-50 border rounded">
+            <div className="mt-3 p-3 bg-gray-50 border rounded animate-fade-in">
               <input 
                 type="text" 
                 value={authCode} 
@@ -180,6 +178,19 @@ export default function SignupPage({ onSignup }) {
           )}
         </div>
 
+        {/* 2. 닉네임 (★ 스펙상 필수, 추가함) */}
+        <div>
+          <label className="block text-gray-700 text-sm font-bold mb-2">닉네임</label>
+          <input 
+            type="text" 
+            value={nickname} 
+            onChange={(e) => setNickname(e.target.value)} 
+            className={inputClass} 
+            placeholder="사용할 별명" 
+            required 
+          />
+        </div>
+
         {/* 3. 비밀번호 */}
         <div>
           <label className="block text-gray-700 text-sm font-bold mb-2">비밀번호</label>
@@ -188,6 +199,7 @@ export default function SignupPage({ onSignup }) {
             value={password} 
             onChange={(e) => setPassword(e.target.value)} 
             className={inputClass} 
+            placeholder="비밀번호 입력" 
             required 
           />
         </div>
@@ -200,14 +212,15 @@ export default function SignupPage({ onSignup }) {
             value={confirmPassword} 
             onChange={(e) => setConfirmPassword(e.target.value)} 
             className={inputClass} 
+            placeholder="비밀번호 재입력" 
             required 
           />
         </div>
 
         {error && <p className="text-red-500 text-sm italic text-center font-bold">{error}</p>}
         
-        {/* ★ 수정된 가입 버튼 (길게!) */}
-        <button type="submit" className={buttonClass} disabled={isLoading || !isVerified}>
+        {/* 가입 버튼 */}
+        <button type="submit" className={buttonClass} disabled={isLoading}>
           {isLoading ? '처리 중...' : '가입하기'}
         </button>
       </form>
