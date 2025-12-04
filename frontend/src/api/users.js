@@ -1,7 +1,8 @@
-import api from './client';
+// src/api/users.js
+import api from "./client";
 
 export async function getMyProfile() {
-  const res = await api.get('/users/me');
+  const res = await api.get("/users/me");
   return res.data;
 }
 
@@ -11,6 +12,7 @@ export async function getUserById(id) {
 }
 
 export async function updateMyProfile(payload) {
-  const res = await api.patch('/users/me', payload);
+  // 🔥 여기 PATCH → PUT 으로 변경
+  const res = await api.put("/users/me", payload);
   return res.data;
 }

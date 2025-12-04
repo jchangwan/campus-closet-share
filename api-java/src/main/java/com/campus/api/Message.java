@@ -1,6 +1,7 @@
 package com.campus.api;
 
 import jakarta.persistence.*;
+
 import java.time.Instant;
 
 @Entity
@@ -11,25 +12,34 @@ public class Message {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 보낸 사람 / 받는 사람 (나중에 User 엔티티와 연관관계 맺어도 되고, 지금은 Id만 사용)
-    @Column(nullable = false)
-    private Long senderId;
+    // 보낸 사람
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "sender_id")
+    private User sender;
 
-    @Column(nullable = false)
-    private Long receiverId;
+    // 받는 사람
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "receiver_id")
+    private User receiver;
 
-    // 어떤 게시글을 보고 보낸 메시지인지 (선택)
-    private Long postId;
+    // 관련 게시글 (옷 게시글 혹은 커뮤니티 글) - 없을 수도 있으므로 nullable
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "post_id")
+    private Post post;
 
-    @Column(nullable = false, length = 1000)
+    @Column(nullable = false, length = 2000)
     private String content;
-
-    @Column(nullable = false, updatable = false)
-    private Instant createdAt;
 
     @Column(nullable = false)
     private boolean isRead = false;
 
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column
+    private Instant readAt;
+
+    // ===== 라이프사이클 =====
     @PrePersist
     public void onCreate() {
         if (createdAt == null) {
@@ -37,47 +47,54 @@ public class Message {
         }
     }
 
-    // === 기본 생성자 ===
+    // ===== 생성자 =====
     protected Message() {
+        // JPA 기본 생성자
     }
 
-    // 필요하면 생성자 추가해서 사용 가능
-    public Message(Long senderId, Long receiverId, Long postId, String content) {
-        this.senderId = senderId;
-        this.receiverId = receiverId;
-        this.postId = postId;
+    public Message(User sender, User receiver, Post post, String content) {
+        this.sender = sender;
+        this.receiver = receiver;
+        this.post = post;
         this.content = content;
-        this.isRead = false;
     }
 
-    // === Getter / Setter ===
+    // ===== 편의 메서드 =====
+    public void markRead() {
+        if (!this.isRead) {
+            this.isRead = true;
+            this.readAt = Instant.now();
+        }
+    }
+
+    // ===== Getter / Setter =====
 
     public Long getId() {
         return id;
     }
 
-    public Long getSenderId() {
-        return senderId;
+    public User getSender() {
+        return sender;
     }
 
-    public void setSenderId(Long senderId) {
-        this.senderId = senderId;
+    public void setSender(User sender) {
+        this.sender = sender;
     }
 
-    public Long getReceiverId() {
-        return receiverId;
+    public User getReceiver() {
+        return receiver;
     }
 
-    public void setReceiverId(Long receiverId) {
-        this.receiverId = receiverId;
+    public void setReceiver(User receiver) {
+        this.receiver = receiver;
     }
 
-    public Long getPostId() {
-        return postId;
+    public Post getPost() {
+        return post;
     }
 
-    public void setPostId(Long postId) {
-        this.postId = postId;
+    public void setPost(Post post) {
+        this.post = post;
     }
 
     public String getContent() {
@@ -88,15 +105,23 @@ public class Message {
         this.content = content;
     }
 
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
     public boolean isRead() {
         return isRead;
     }
 
     public void setRead(boolean read) {
         isRead = read;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getReadAt() {
+        return readAt;
+    }
+
+    public void setReadAt(Instant readAt) {
+        this.readAt = readAt;
     }
 }

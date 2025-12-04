@@ -1,26 +1,58 @@
 import api from './client';
 
-// 1. 채팅방 목록 조회 (GET /messages/rooms)
-export async function getChatRooms() {
-  const res = await api.get('/messages/rooms');
-  return res.data; // [{ roomId, otherUserId, otherNickname, lastMessage, updatedAt }, ...]
+
+export async function sendMessage({ receiverId, postId, content }) {
+  const res = await api.post('/messages', {
+    receiverId, // ★ 반드시 포함되어야 함
+    postId,
+    content,
+  });
+  return res.data;
 }
 
-// 2. 특정 채팅방 메시지 목록 (GET /messages?roomId=1)
-export async function getMessagesInRoom(roomId) {
-  const res = await api.get('/messages', { params: { roomId } });
-  return res.data; // [{ id, roomId, senderId, content, createdAt }, ...]
+
+export async function getInbox(params = {}) {
+  const res = await api.get('/messages/inbox', { params });
+  const data = res.data;
+
+  // data가 이미 배열이면 그대로 리턴
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  // Page<Message> 형태일 때 (Spring JPA 많이 쓰는 형태)
+  if (Array.isArray(data.content)) {
+    return data.content;
+  }
+
+  // { messages: [...] } 형태일 때
+  if (Array.isArray(data.messages)) {
+    return data.messages;
+  }
+
+  // 그래도 아니면 빈 배열
+  return [];
 }
 
-// 3. 메시지 보내기 (POST /messages)
-// payload: { roomId, receiverId, content }
-export async function sendMessage(payload) {
-  const res = await api.post('/messages', payload);
+
+export async function getUnreadCount() {
+  const res = await api.get('/messages/unread-count');
   return res.data;
 }
 
 // 4. (필요 시 유지) 읽지 않은 개수
 export async function getUnreadCount() {
   const res = await api.get('/messages/unread-count');
+  return res.data;
+}
+
+export async function getConversation({ postId, otherUserId }) {
+  const res = await api.get('/messages/conversation', {
+    params: { postId, otherUserId },
+  });
+  return res.data; // [ { id, senderId, receiverId, postId, content, createdAt, ...}, ... ]
+}
+export async function listReceivedMessages() {
+  const res = await api.get('/messages');
   return res.data;
 }

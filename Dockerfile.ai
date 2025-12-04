@@ -1,30 +1,27 @@
 # 1. 베이스 이미지
 FROM python:3.10-slim
 
-# 2. 작업 디렉토리 생성
+# 2. 작업 디렉토리
 WORKDIR /app
 
-# 3. 필수 시스템 패키지 설치 
+# 3. 시스템 패키지 (faiss/torch용, X11은 빼고)
 RUN apt-get update && apt-get install -y \
-    libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    libgomp1 libglib2.0-0 \
+  && rm -rf /var/lib/apt/lists/*
 
-# 4. 라이브러리 설치
+# 4. 파이썬 라이브러리 설치
 COPY requirements.txt .
+RUN python -m pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-RUN python -m pip install --upgrade pip
-
-RUN pip install --no-cache-dir -r requirements.txt
-
-#모델 미리 다운로드 
+# 5. SentenceTransformer 모델 미리 받아두기 (빌드 시 다운로드)
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('clip-ViT-B-32')"
 
+# 6. 소스/데이터 복사 (musinsa 폴더 안에 있던 것들)
+COPY musinsa/app.py ./app.py
+COPY musinsa/mapping_data.pkl ./mapping_data.pkl
+COPY musinsa/vector_db.index ./vector_db.index
 
-# 5. 소스 코드 복사
-COPY . .
-
-# 6. 포트 노출
-EXPOSE 5000
-
-# 7. 서버 실행
-CMD ["python", "-u", "app.py"]
+# 7. 포트 노출 & 실행
+EXPOSE 8000
+CMD ["python", "app.py"]

@@ -1,100 +1,186 @@
-import React, { useState } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { getMyProfile, updateMyProfile } from './api/users';
-import { login as loginApi } from './api/auth';
+// src/App.jsx
+import React, { useState, useEffect } from "react";
+import { Routes, Route, Navigate, Outlet, useNavigate } from "react-router-dom";
+
+import { mockSocialPosts } from "./data/mockData";
+import { getMyProfile, updateMyProfile } from "./api/users";
+import api, { restoreAuthUser, setAuthUser } from "./api/client";
 
 // 공통 컴포넌트
-import Navbar from './components/Navbar';
-import Footer from './components/Footer';
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 
 // 페이지 컴포넌트
-import HomePage from './pages/HomePage';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import MyPage from './pages/MyPage';
-import MessagePage from './pages/MessagePage';
-import ClosetFeedSection from './pages/ClosetFeedSection';
-import SocialFeedSection from './pages/SocialFeedSection';
+import HomePage from "./pages/HomePage";
+import LoginPage from "./pages/LoginPage";
+import SignupPage from "./pages/SignupPage";
+import MyPage from "./pages/MyPage";
+import MessagePage from "./pages/MessagePage";
+import ClosetFeedSection from "./pages/ClosetFeedSection";
+import SocialFeedSection from "./pages/SocialFeedSection";
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  // 임시로 true로 설정. 바꿔야함
+  const navigate = useNavigate();
+
+  // --- 상태 관리 ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const [currentUser, setCurrentUser] = useState({
-    email: '',
-    university: '경기대학교',
-    profileImageUrl: 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=Profile',
-    name: '익명 사용자',
-    bio: '',
+    id: null,
+    email: "",
+    university: "경기대학교",
+    profileImageUrl:
+      "https://placehold.co/100x100/E2E8F0/A0AEC0?text=Profile",
+    name: "클로젯셰어",
+    bio: "",
   });
 
-  // --- 로그인 처리 ---
+  // ClosetFeedSection에서 실제로는 API(/posts)를 쓰지만
+  // 마이페이지 등에서 목록을 모을 때를 대비해서 유지
+  const [closetItems, setClosetItems] = useState([]);
+
+  const [socialPosts, setSocialPosts] = useState(mockSocialPosts);
+
+  // --- 앱 처음 로드될 때: 로그인 상태 복원 ---
+  useEffect(() => {
+    const saved = restoreAuthUser();
+    if (saved) {
+      setIsAuthenticated(true);
+      setCurrentUser((prev) => ({
+        ...prev,
+        id: saved.id ?? prev.id,
+        email: saved.email || prev.email,
+        name: saved.nickname || prev.name,
+        profileImageUrl: saved.profileImageUrl || prev.profileImageUrl,
+      }));
+
+      // 프로필 API에서 bio, 프로필 이미지 등을 덮어쓰기
+      (async () => {
+        try {
+          const profile = await getMyProfile();
+          setCurrentUser((prev) => ({
+            ...prev,
+            email: profile.email || prev.email,
+            name: profile.nickname || prev.name,
+            bio: profile.bio ?? prev.bio,
+            profileImageUrl: profile.profileImageUrl || prev.profileImageUrl,
+          }));
+        } catch (e) {
+          console.error("Failed to load profile on app init", e);
+        }
+      })();
+    }
+  }, []);
+
+  // --- 핸들러들 ---
+
+  // 실제 로그인 처리 (백엔드 /auth/login 호출)
   const handleLogin = async (email, password) => {
     try {
-      // 1) 백엔드 로그인 API 호출
-      await loginApi({ email, password });
+      const res = await api.post("/auth/login", { email, password });
+      const user = res.data; // AuthController.UserResponse
 
-      // 2) 로그인 성공 시 프로필 불러오기
+      // axios 전역 헤더 + localStorage 저장
+      setAuthUser(user);
+
+      // 상태 갱신
+      setIsAuthenticated(true);
+      setCurrentUser((prev) => ({
+        ...prev,
+        id: user.id ?? prev.id,
+        email: user.email || prev.email,
+        name: user.nickname || prev.name,
+        profileImageUrl: user.profileImageUrl || prev.profileImageUrl,
+      }));
+
+      // 로그인 후 프로필 API로 부가 정보 로드
       try {
         const profile = await getMyProfile();
         setCurrentUser((prev) => ({
           ...prev,
-          email: profile.email || email,
+          email: profile.email || prev.email,
           name: profile.nickname || prev.name,
-          bio: profile.bio || '',
+          bio: profile.bio ?? prev.bio,
           profileImageUrl: profile.profileImageUrl || prev.profileImageUrl,
         }));
       } catch (e) {
-        console.error('프로필 불러오기 실패', e);
-        setCurrentUser((prev) => ({
-          ...prev,
-          email,
-        }));
+        console.error("Failed to load profile after login", e);
       }
 
-      setIsAuthenticated(true);
       return true;
-    } catch (e) {
-      console.error('로그인 실패', e);
+    } catch (err) {
+      console.error("login failed", err);
       return false;
     }
   };
 
-  // --- 로그아웃 처리 ---
+  // 회원가입 성공 후 호출 (SignupPage에서 onSignup(user)로 전달)
+  const handleAfterSignup = (user) => {
+    // axios 헤더/로컬스토리지는 SignupPage에서 이미 setAuthUser 호출함
+    setIsAuthenticated(true);
+    setCurrentUser((prev) => ({
+      ...prev,
+      id: user.id ?? prev.id,
+      email: user.email || prev.email,
+      name: user.nickname || prev.name,
+      profileImageUrl: user.profileImageUrl || prev.profileImageUrl,
+    }));
+
+    navigate("/feed");
+  };
+
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser({
-      email: '',
-      university: '경기대학교',
-      profileImageUrl: 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=Profile',
-      name: '익명 사용자',
-      bio: '',
+      id: null,
+      email: "",
+      university: "경기대학교",
+      profileImageUrl: "",
+      name: "",
+      bio: "",
     });
+    setAuthUser(null); // X-USER-ID 헤더 제거 + localStorage 비우기
+    navigate("/");
   };
 
-  // --- 프로필 수정 처리 ---
+  // 프로필 수정
   const handleUpdateProfile = (updatedProfile) => {
-    // 1) 프론트 상태 먼저 갱신
-    setCurrentUser((prev) => ({
-      ...prev,
+    // 1) 먼저 로컬 상태를 낙관적으로 갱신
+    setCurrentUser((prevUser) => ({
+      ...prevUser,
       ...updatedProfile,
+      name: updatedProfile.name ?? prevUser.name,
     }));
 
-    // 2) 백엔드에도 PATCH 요청
+    // 2) 실제 API 호출 (닉네임, 한줄소개, 프로필 이미지)
+    const payload = {
+      nickname: updatedProfile.name || currentUser.name,
+      bio: updatedProfile.bio ?? currentUser.bio,
+      profileImageUrl:
+        updatedProfile.profileImageUrl || currentUser.profileImageUrl,
+    };
+
     (async () => {
       try {
-        await updateMyProfile({
-          nickname: updatedProfile.name || currentUser.name,
-          bio: updatedProfile.bio ?? currentUser.bio,
-          profileImageUrl:
-            updatedProfile.profileImageUrl || currentUser.profileImageUrl,
-        });
+        await updateMyProfile(payload);
       } catch (e) {
-        console.error('프로필 업데이트 실패', e);
+        console.error("Failed to update profile via API", e);
       }
     })();
   };
 
-  // --- 보호 라우트 ---
+  // 커뮤니티 게시글 저장/북마크 토글 (로컬 상태 기준)
+  const handleToggleSave = (postId) => {
+    setSocialPosts((prevPosts) =>
+      prevPosts.map((post) =>
+        post.id === postId
+          ? { ...post, isSaved: !post.isSaved }
+          : post
+      )
+    );
+  };
+
+  // --- 라우트 보호 컴포넌트 ---
   const ProtectedRoute = () => {
     if (!isAuthenticated) {
       return <Navigate to="/login" replace />;
@@ -102,21 +188,23 @@ export default function App() {
     return <Outlet />;
   };
 
-  // --- 레이아웃 컴포넌트 ---
+  // --- 레이아웃 컴포넌트들 ---
+
+  // 중앙 정렬 레이아웃 (Home, Login, Signup, MyPage, Message 등)
   const CenteredLayout = () => (
-    <main className="flex-grow flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-5xl">
-        <Outlet />
-      </div>
+    <main className="container mx-auto px-4 sm:px-6 py-8 flex-grow">
+      <Outlet />
     </main>
   );
 
+  // 꽉 찬 너비 레이아웃 (피드, 커뮤니티)
   const FullWidthLayout = () => (
     <div className="flex-grow w-full flex">
       <Outlet />
     </div>
   );
 
+  // --- 렌더링 ---
   return (
     <div className="bg-gray-50 min-h-screen flex flex-col">
       <Navbar
@@ -133,7 +221,7 @@ export default function App() {
             path="/login"
             element={
               isAuthenticated ? (
-                <Navigate to="/feed" replace />
+                <Navigate to="/feed" />
               ) : (
                 <LoginPage onLogin={handleLogin} />
               )
@@ -143,43 +231,59 @@ export default function App() {
             path="/signup"
             element={
               isAuthenticated ? (
-                <Navigate to="/feed" replace />
+                <Navigate to="/feed" />
               ) : (
-                <SignupPage />
+                <SignupPage onSignup={handleAfterSignup} />
               )
             }
           />
         </Route>
 
-        {/* 로그인 필수 페이지들 */}
+        {/* --- Protected Routes --- */}
         <Route element={<ProtectedRoute />}>
-          {/* 피드 / 커뮤니티는 전체 폭 레이아웃 */}
+          {/* 꽉 찬 너비 레이아웃: 피드 / 커뮤니티 */}
           <Route element={<FullWidthLayout />}>
-            <Route path="/feed" element={<ClosetFeedSection />} />
-            <Route path="/community" element={<SocialFeedSection />} />
+            <Route path="/feed"
+            element={
+                <ClosetFeedSection
+                currentUser={currentUser}
+                 />
+                 }
+             />
+            <Route
+              path="/social"
+              element={
+                <SocialFeedSection
+                  socialPosts={socialPosts}
+                  onToggleSave={handleToggleSave}
+                  currentUser={currentUser}
+                />
+              }
+            />
           </Route>
 
-          {/* 마이페이지 / 쪽지함은 센터 레이아웃 */}
+          {/* 중앙 정렬 레이아웃: 마이페이지 / 쪽지 */}
           <Route element={<CenteredLayout />}>
             <Route
-              path="/mypage"
+              path="/my-page"
               element={
                 <MyPage
                   currentUser={currentUser}
                   onUpdateProfile={handleUpdateProfile}
+                  allClosetItems={closetItems}
+                  allSocialPosts={socialPosts}
+                  onToggleSave={handleToggleSave}
                 />
               }
             />
-            <Route path="/messages" element={<MessagePage />} />
+            <Route path="/messages" element={<MessagePage currentUser={currentUser} />} />
           </Route>
         </Route>
 
-        {/* 그 외 경로는 홈/피드로 리다이렉트 */}
+        {/* --- Fallback Route --- */}
         <Route
           path="*"
-          element={
-            <Navigate to={isAuthenticated ? '/feed' : '/'} replace />
-          }
+          element={<Navigate to={isAuthenticated ? "/feed" : "/"} />}
         />
       </Routes>
 

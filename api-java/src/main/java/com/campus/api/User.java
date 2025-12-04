@@ -11,17 +11,21 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 로그인용 이메일 (고유)
+    // 학교 이메일 (로그인용, 고유)
     @Column(nullable = false, unique = true, length = 191)
     private String email;
 
-    // 비밀번호 (지금은 평문이라도 OK, 나중에 암호화 가능)
+    // 평문 비밀번호(데모용) — 나중에 BCrypt 예정
     @Column(nullable = false)
     private String password;
 
-    // 닉네임 (커뮤니티/프로필에서 표시)
+    // 닉네임
     @Column(nullable = false, length = 50)
     private String nickname;
+
+    // 개인 이메일 (gmail 등)
+    @Column(length = 191)
+    private String personalEmail;
 
     // 한 줄 소개
     @Column(length = 500)
@@ -37,7 +41,7 @@ public class User {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    // ===== 라이프사이클 콜백 =====
+    // ===== 라이프사이클 =====
 
     @PrePersist
     public void onCreate() {
@@ -53,9 +57,7 @@ public class User {
 
     // ===== 생성자 =====
 
-    protected User() {
-        // JPA 기본 생성자
-    }
+    protected User() {}
 
     public User(String email, String password, String nickname) {
         this.email = email;
@@ -91,6 +93,14 @@ public class User {
 
     public void setNickname(String nickname) {
         this.nickname = nickname;
+    }
+
+    public String getPersonalEmail() {
+        return personalEmail;
+    }
+
+    public void setPersonalEmail(String personalEmail) {
+        this.personalEmail = personalEmail;
     }
 
     public String getBio() {

@@ -28,6 +28,7 @@ public class CommunityComment {
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    // ===== 라이프사이클 =====
     @PrePersist
     public void onCreate() {
         if (createdAt == null) {
@@ -35,7 +36,9 @@ public class CommunityComment {
         }
     }
 
+    // ===== 생성자 =====
     protected CommunityComment() {
+        // JPA 기본 생성자
     }
 
     public CommunityComment(CommunityPost post, User author, String content) {

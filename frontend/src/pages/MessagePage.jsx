@@ -1,204 +1,221 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { getChatRooms, getMessagesInRoom, sendMessage } from '../api/messages';
+// src/pages/MessagePage.jsx
+import React, { useEffect, useState } from "react";
+import { getInbox, sendMessage, getConversation } from "../api/messages";
 
-export default function MessagePage() { 
-  const location = useLocation();
-  const [chatRooms, setChatRooms] = useState([]); // (구 messages) -> 채팅방 목록
-  const [selectedRoomId, setSelectedRoomId] = useState(null); // (구 selectedMessage)
-  const [roomMessages, setRoomMessages] = useState([]); // 채팅방 내부 대화 목록
-  const [replyText, setReplyText] = useState('');
-  
-  // 피드에서 넘어온 경우 (새 채팅 타겟)
-  const [newChatTarget, setNewChatTarget] = useState(null);
+export default function MessagePage({ currentUser }) {
+  const [messages, setMessages] = useState([]);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [conversation, setConversation] = useState([]);
+  const [replyText, setReplyText] = useState("");
 
-  // 1. 초기 로드: 채팅방 목록
+  // 받은 쪽지함 불러오기
   useEffect(() => {
-    async function loadRooms() {
+    (async () => {
       try {
-        const data = await getChatRooms();
-        setChatRooms(Array.isArray(data) ? data : []);
+        const data = await getInbox();
+        setMessages(data || []);
       } catch (e) {
-        console.error('failed to load chat rooms', e);
+        console.error("failed to load inbox", e);
       }
-    }
-    loadRooms();
+    })();
   }, []);
 
-  // 2. 피드에서 넘어왔을 때 처리
-  useEffect(() => {
-    if (location.state?.targetInfo) {
-      const { receiverId, itemTitle } = location.state.targetInfo;
-      // 이미 방이 있는지 확인 (상대방 ID로)
-      const existingRoom = chatRooms.find(r => r.otherUserId === receiverId);
-      if (existingRoom) {
-        setSelectedRoomId(existingRoom.roomId);
-      } else {
-        setNewChatTarget({ receiverId, itemTitle });
-        setSelectedRoomId(null);
-      }
+  // 🔥 대화 전체 불러오는 함수 (postId + 나 + 상대)
+  const loadConversation = async (postId, userId, otherUserId) => {
+    try {
+      const conv = await getConversation({ postId, userId, otherUserId });
+      setConversation(conv || []);
+    } catch (e) {
+      console.error("failed to load conversation", e);
+      setConversation([]);
     }
-  }, [location.state, chatRooms]);
-
-  // 3. 방 선택 시 메시지 로드
-  useEffect(() => {
-    if (selectedRoomId) {
-      setNewChatTarget(null);
-      async function loadMessages() {
-        try {
-          const data = await getMessagesInRoom(selectedRoomId);
-          setRoomMessages(Array.isArray(data) ? data : []);
-        } catch (e) {
-          console.error('failed to load messages', e);
-        }
-      }
-      loadMessages();
-    }
-  }, [selectedRoomId]);
-
-  const handleSelectRoom = (roomId) => {
-    setSelectedRoomId(roomId);
-    setReplyText('');
   };
 
+  // 🔥 상대 id 계산 (otherUserId가 없을 수도 있으니까)
+  const getOtherUserId = (msg) => {
+    if (msg.otherUserId) return msg.otherUserId;
+    // 받은 쪽지함이면 sender가 항상 상대
+    if (currentUser && msg.senderId && msg.receiverId) {
+      return msg.senderId === currentUser.id ? msg.receiverId : msg.senderId;
+    }
+    return msg.senderId; // 최소한 이건 있음
+  };
+
+  // 좌측 쪽지 클릭했을 때
+  const handleSelectMessage = (msg) => {
+    const otherUserId = getOtherUserId(msg);
+
+    // otherUserId를 강제로 심어서 저장
+    const normalized = { ...msg, otherUserId };
+    setSelectedMessage(normalized);
+
+    if (!currentUser?.id) return;
+
+    loadConversation(msg.postId, currentUser.id, otherUserId);
+  };
+
+  // 🔥 답장 보내기
   const handleSubmitReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim()) return;
-
-    let roomIdToSend = selectedRoomId;
-    let receiverIdToSend = null;
-
-    // A. 기존 방에서 보내기
-    if (selectedRoomId) {
-      const room = chatRooms.find(r => r.roomId === selectedRoomId);
-      if (room) receiverIdToSend = room.otherUserId;
-    } 
-    // B. 새 채팅 보내기
-    else if (newChatTarget) {
-      receiverIdToSend = newChatTarget.receiverId;
+    if (!selectedMessage || !replyText.trim()) return;
+    if (!currentUser?.id) {
+      alert("로그인 정보가 없습니다.");
+      return;
     }
 
-    if (!receiverIdToSend) return;
+    const otherUserId = getOtherUserId(selectedMessage);
 
     try {
+      // 1) 쪽지 전송
       await sendMessage({
-        roomId: roomIdToSend,
-        receiverId: receiverIdToSend,
+        receiverId: otherUserId,
+        postId: selectedMessage.postId,
         content: replyText.trim(),
       });
-      setReplyText('');
-      
-      // 전송 후 처리
-      if (roomIdToSend) {
-        // 기존 방이면 메시지 목록 갱신
-        const data = await getMessagesInRoom(roomIdToSend);
-        setRoomMessages(Array.isArray(data) ? data : []);
-      } else {
-        // 새 방이면 페이지 새로고침(혹은 방 목록 갱신)
-        alert('메시지를 보냈습니다. 목록에서 확인해주세요.');
-        window.location.reload(); 
-      }
+
+      // 2) 방금 쓴 내용까지 포함해서 대화 다시 불러오기
+      await loadConversation(
+        selectedMessage.postId,
+        currentUser.id,
+        otherUserId
+      );
+
+      setReplyText("");
     } catch (e) {
-      console.error('failed to send message', e);
-      alert('쪽지 전송 중 오류가 발생했습니다.');
+      console.error("failed to send message", e);
+      if (e.response) {
+        console.error("status:", e.response.status, "data:", e.response.data);
+      }
+      alert("쪽지 전송 중 오류가 발생했습니다.");
     }
   };
+  // === (postId, otherUserId) 별로 한 줄만 보이게 묶기 ===
+  const threads = (() => {
+    const map = new Map();
+
+    for (const msg of messages) {
+      const otherId = getOtherUserId(msg);
+      const key = `${msg.postId}-${otherId}`;
+
+      const existing = map.get(key);
+
+      // createdAt 기준으로 더 최신인 메시지를 남김
+      if (
+        !existing ||
+        new Date(msg.createdAt) > new Date(existing.createdAt)
+      ) {
+        map.set(key, { ...msg, otherUserId: otherId });
+      }
+    }
+
+    // 최신순으로 정렬 (원하면 빼도 됨)
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+  })();
+
+  // === 아래는 렌더링 부분 (좌측 목록 + 우측 대화) ===
 
   return (
-    <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-lg flex h-[600px] overflow-hidden mt-8">
-      {/* 왼쪽: 채팅방 리스트 (원래 디자인 유지) */}
-      <div className="w-1/3 border-r border-gray-200 flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-800">채팅 목록</h2>
-          <span className="text-xs text-gray-500">{chatRooms.length}개</span>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          {chatRooms.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-              진행 중인 대화가 없습니다.
+    <div className="max-w-5xl mx-auto bg-white rounded-lg shadow-2xl p-6 flex space-x-6">
+            {/* 왼쪽: 받은 쪽지함 */}
+            <div className="w-1/3 border-r pr-4">
+              <h2 className="text-xl font-bold mb-4">받은 쪽지함</h2>
+              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                {threads.map((msg) => (   // ⬅ messages → threads
+                  <div
+                    key={`${msg.postId}-${msg.otherUserId}`} // 키도 조합으로
+                    className={`p-3 rounded-md cursor-pointer ${
+                      selectedMessage?.postId === msg.postId &&
+                      getOtherUserId(selectedMessage) === msg.otherUserId
+                        ? "bg-indigo-50 border border-indigo-200"
+                        : "bg-gray-50 hover:bg-gray-100"
+                    }`}
+                    onClick={() => handleSelectMessage(msg)}
+                  >
+                    <p className="text-xs text-gray-500 mb-1">
+                      보낸이 ID: {msg.senderId} · 게시물 ID: {msg.postId}
+                    </p>
+                    <p className="text-sm text-gray-800 truncate">{msg.content}</p>
+                  </div>
+                ))}
+                {threads.length === 0 && (   // ⬅ messages.length → threads.length
+                  <p className="text-gray-400 text-sm">받은 쪽지가 없습니다.</p>
+                )}
+              </div>
             </div>
-          ) : (
-            chatRooms.map(room => (
-              <button
-                key={room.roomId}
-                onClick={() => handleSelectRoom(room.roomId)}
-                className={
-                  "w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-indigo-50 flex flex-col " +
-                  (selectedRoomId === room.roomId ? "bg-indigo-50" : "")
-                }
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-semibold text-sm text-gray-800">
-                    {room.otherNickname || `User ${room.otherUserId}`}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {room.updatedAt?.substring(0, 10)}
-                  </span>
+
+
+      {/* 오른쪽: 대화/답장 */}
+      <div className="w-2/3 flex flex-col">
+        <h2 className="text-xl font-bold mb-2">
+          쪽지 대화
+          {selectedMessage && (
+            <span className="ml-2 text-sm text-gray-500">
+              상대 ID: {getOtherUserId(selectedMessage)} · 게시물 ID:{" "}
+              {selectedMessage.postId}
+            </span>
+          )}
+        </h2>
+
+        <div className="flex-1 border rounded-md p-3 mb-3 overflow-y-auto bg-gray-50">
+          {selectedMessage ? (
+            conversation.length > 0 ? (
+              conversation.map((m) => (
+                <div
+                  key={m.id}
+                  className={`mb-2 flex ${
+                    m.senderId === currentUser?.id
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`px-3 py-2 rounded-lg text-sm ${
+                      m.senderId === currentUser?.id
+                        ? "bg-indigo-500 text-white"
+                        : "bg-white border"
+                    }`}
+                  >
+                    <p>{m.content}</p>
+                    <p className="text-[10px] mt-1 opacity-70">
+                      {new Date(m.createdAt).toLocaleString("ko-KR", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-700 truncate">{room.lastMessage}</p>
-              </button>
-            ))
+              ))
+            ) : (
+              <p className="text-gray-400 text-sm text-center mt-10">
+                아직 대화 내역이 없습니다. 첫 쪽지를 보내보세요.
+              </p>
+            )
+          ) : (
+            <p className="text-gray-400 text-sm text-center mt-10">
+              왼쪽에서 대화를 볼 쪽지를 선택하세요.
+            </p>
           )}
         </div>
-      </div>
 
-      {/* 오른쪽: 선택된 방 대화 내용 (원래 레이아웃 유지, 내용은 채팅 스타일로) */}
-      <div className="flex-1 flex flex-col">
-        {selectedRoomId || newChatTarget ? (
-          <>
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-800">
-                {newChatTarget ? `새 대화 (상품: ${newChatTarget.itemTitle})` : `대화방 #${selectedRoomId}`}
-              </h2>
-            </div>
-            
-            {/* 대화 내용 영역 */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50">
-              {newChatTarget && (
-                <div className="text-center text-gray-400 text-sm my-4">
-                  메시지를 보내 대화를 시작하세요.
-                </div>
-              )}
-              {roomMessages.map((msg, idx) => {
-                 // 내 메시지인지 구분 (임시: 실제론 myUserId 비교 필요)
-                 const isMe = false; 
-                 return (
-                   <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`max-w-[70%] px-3 py-2 rounded-lg text-sm ${
-                       isMe ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-800'
-                     }`}>
-                       <div className="font-bold text-xs mb-1 opacity-70">
-                         {isMe ? '나' : `User ${msg.senderId}`}
-                       </div>
-                       {msg.content}
-                     </div>
-                   </div>
-                 );
-              })}
-            </div>
-
-            {/* 입력 폼 */}
-            <form onSubmit={handleSubmitReply} className="border-t border-gray-200 px-4 py-3 flex space-x-2 bg-white">
-              <input
-                type="text"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="메시지를 입력하세요..."
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                전송
-              </button>
-            </form>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-            왼쪽에서 채팅방을 선택하면 대화 내용을 볼 수 있습니다.
-          </div>
-        )}
+        {/* 답장 입력창 */}
+        <form onSubmit={handleSubmitReply} className="flex space-x-2">
+          <input
+            type="text"
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="메시지를 입력하세요"
+            className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            type="submit"
+            className="px-5 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            disabled={!selectedMessage || !replyText.trim()}
+          >
+            보내기
+          </button>
+        </form>
       </div>
     </div>
   );

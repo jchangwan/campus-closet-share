@@ -8,32 +8,23 @@ import {
   updateCommunityPost,
   deleteCommunityPost,
   createCommunityComment,
-  deleteCommunityComment,
-  toggleCommunityLike,
-  listCommunityComments
-  
+  createCommunityPost,
+  deleteCommunityPost,
 } from '../api/community';
+import { uploadImages } from '../api/files';
+// ★ 그라데이션 버튼 스타일
+const buttonClass =
+  'w-auto bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
+const textSearchButtonClass =
+  'w-auto rounded-l-none !py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-r-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
+const uploadButtonClass =
+  'w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
 
-// ⭐ API 목업: 실제로는 ../api/community에 POST /files/images 로 구현해야 합니다.
-// [cite: 167, 168]을 참고하여 files 배열을 받아 URL 배열을 반환한다고 가정합니다.
-const uploadImageFiles = async (files) => {
-    console.log(`[Mock API] Uploading ${files.length} files...`);
-    // 실제 서버 통신 코드가 들어갈 자리입니다. (e.g., Axios post with FormData)
-    await new Promise(resolve => setTimeout(resolve, 800)); // 통신 지연 시뮬레이션
-    
-    // 서버가 URL을 반환하는 형식 시뮬레이션 
-    return files.map((file, index) => 
-        `http://localhost:8080/files/mock-${Date.now()}-${index}-${file.name}`
-    );
-};
-
-// 스타일
-const buttonClass = 'w-auto bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
-const textSearchButtonClass = 'w-auto rounded-l-none !py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-r-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
-const uploadButtonClass = 'w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
-
-export default function SocialFeedSection({ onToggleSave }) {
-  const POSTS_PER_PAGE = 5;
+// 1. App.jsx로부터 props 받기
+//   - socialPosts: 혹시 모를 fallback용 (API 실패 시 사용 가능)
+//   - onToggleSave: 북마크(저장) 기능은 일단 그대로 두고, 로컬 상태 기반
+export default function SocialFeedSection({ socialPosts = [], onToggleSave, currentUser, }) {
+  const POSTS_PER_PAGE = 4;
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -195,6 +186,29 @@ export default function SocialFeedSection({ onToggleSave }) {
         alert('댓글 등록 실패: 로그인 상태나 서버를 확인해주세요.'); 
       }
     };
+    const handleDeletePost = async () => {
+      if (!window.confirm("정말 삭제하시겠습니까?")) return;
+
+      try {
+
+        await deleteCommunityPost(post.id);
+
+        alert("삭제되었습니다.");
+        setSocialPage("list");
+
+        // 목록에서 바로 지우고 싶으면 아래까지 해줘도 됨
+        setPosts(prev => prev.filter(p => p.id !== post.id));
+      } catch (e) {
+        console.error("삭제 실패", e);
+        // 상태 코드까지 확인해보자 (권한 문제 등)
+        if (e.response) {
+          console.error("status:", e.response.status, "data:", e.response.data);
+        }
+        alert("삭제 중 오류가 발생했습니다.");
+      }
+    };
+
+
 
     // (쪽지 보내기 핸들러 삭제됨)
 
@@ -241,28 +255,64 @@ export default function SocialFeedSection({ onToggleSave }) {
             )}
           </div>
         </div>
+      );
+    }
+    // 내가 쓴 커뮤니티 글인지 체크
+    const isMyPost =
+      currentUser &&
+      currentUser.id &&
+      post &&
+      (post.authorId === currentUser.id || post.author?.id === currentUser.id);
 
         {/* 본문 영역 */}
         <div className="p-6">
-          <h2 className="text-2xl font-bold">{post.title}</h2>
-          <div className="flex justify-between items-center text-gray-500 text-sm mb-4 mt-2">
-              <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-700">{post.authorNickname}</span>
-              </div>
-              <span>{new Date(post.createdAt).toLocaleString()}</span>
-          </div>
-          
-          {/* 이미지 표시 로직 (API 응답의 imageUrls 필드 사용) */}
-          {post.imageUrls?.map((url, i) => (
-            <img key={i} src={url} className="w-full rounded mb-4 object-cover max-h-96" alt="게시글 이미지" />
-          ))}
-          
-          <p className="whitespace-pre-wrap text-gray-800 my-6 min-h-[100px] leading-relaxed">{post.content}</p>
-          
-          <div className="text-center mb-6">
-              <button onClick={handleLike} className={`px-6 py-2 rounded-full border transition-all ${post.liked ? 'bg-red-50 border-red-200 text-red-500 shadow-sm' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'}`}>
-                  ♥ 좋아요 {post.likeCount}
+          <div className="flex justify-between items-start">
+            <span className="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
+              커뮤니티
+            </span>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => onToggleSave && onToggleSave(post.id)}
+                className="p-1"
+              >
+                <BookmarkIcon filled={post.isSaved} className="w-7 h-7" />
               </button>
+
+              {/* 🔥 삭제 버튼: 본인 글일 때만 표시 */}
+              {isMyPost && (
+                <button
+                  onClick={handleDeletePost}
+                  className="text-red-500 border border-red-400 px-3 py-1 rounded hover:bg-red-50"
+                >
+                  삭제
+                </button>
+              )}
+            </div>
+
+            </div>
+          <h2 className="text-3xl font-bold text-gray-900 mt-2">
+            {post.title}
+          </h2>
+          <div className="flex items-center space-x-2 my-4">
+            <img
+              src={
+                post.profilePic ||
+                'https://placehold.co/40x40/E2E8F0/A0AEC0?text=U'
+              }
+              alt={post.authorNickname}
+              className="w-10 h-10 rounded-full"
+            />
+            <div>
+              <p className="font-semibold">
+                {post.authorNickname || '익명'}
+              </p>
+              <p className="text-sm text-gray-500">
+                {new Date(post.createdAt).toLocaleString('ko-KR', {
+                  dateStyle: 'short',
+                  timeStyle: 'short',
+                })}
+              </p>
+            </div>
           </div>
 
           <div className="mt-8 border-t pt-6 bg-gray-50 -mx-6 px-6 pb-6">
@@ -306,178 +356,167 @@ export default function SocialFeedSection({ onToggleSave }) {
     );
   }
 
-  // --- [3] 글쓰기/수정 페이지 (이미지 처리 로직 추가) ---
+  // --- (Part 5-3) 자유 커뮤니티 글쓰기 ---
+
   function UploadSocialPostPage() {
-    const isEdit = !!editTarget;
-    const [title, setTitle] = useState(isEdit ? editTarget.title : '');
-    const [content, setContent] = useState(isEdit ? editTarget.content : '');
-    // ⭐ 새로 추가된 상태: 사용자가 선택한 파일 객체 목록
-    const [filesToUpload, setFilesToUpload] = useState([]);
-    // ⭐ 새로 추가된 상태: 수정 시 기존 이미지 URL 목록
-    const [existingImageUrls, setExistingImageUrls] = useState(isEdit ? (editTarget.imageUrls || []) : []);
-    const [isUploading, setIsUploading] = useState(false); // 업로드 중 상태
+    const [category, setCategory] = useState("스타일링 가이드");
+    const [title, setTitle] = useState("");
+    const [content, setContent] = useState("");
+    const [imageFiles, setImageFiles] = useState([]);
+    const [previewUrls, setPreviewUrls] = useState([]);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState("");
 
-    // 파일 선택 핸들러
     const handleFileChange = (e) => {
-        const selectedFiles = Array.from(e.target.files);
-        // 기존 파일에 새로 선택한 파일을 추가 (필요하다면 용량/개수 제한 로직 추가)
-        setFilesToUpload(prev => [...prev, ...selectedFiles]); 
-        e.target.value = null; // 같은 파일을 다시 선택할 수 있도록 초기화
+      const files = Array.from(e.target.files || []);
+      setImageFiles(files);
+      setPreviewUrls(files.map((f) => URL.createObjectURL(f)));
     };
-
-    // 이미지 프리뷰 URL 정리 (메모리 누수 방지)
-    useEffect(() => {
-        return () => {
-            filesToUpload.forEach(file => URL.revokeObjectURL(file.preview));
-        };
-    }, [filesToUpload]);
-    
-    // 이미지 삭제 핸들러 (업로드 예정인 파일 삭제)
-    const removeFileToUpload = (index) => {
-        setFilesToUpload(prev => prev.filter((_, i) => i !== index));
-    };
-
-    // 이미지 삭제 핸들러 (기존 이미지 URL 삭제)
-    const removeExistingImageUrl = (urlToRemove) => {
-        setExistingImageUrls(prev => prev.filter(url => url !== urlToRemove));
-    };
-
 
     const handleSubmit = async (e) => {
       e.preventDefault();
-      
-      let finalImageUrls = existingImageUrls;
+      setError("");
 
+      if (!title.trim()) {
+        setError("제목을 입력해주세요.");
+        return;
+      }
+      if (!content.trim()) {
+        setError("내용을 입력해주세요.");
+        return;
+      }
+
+      setSubmitting(true);
       try {
-        setIsUploading(true);
-        
-        // 1. 새 파일이 있다면 먼저 업로드하여 URL을 받습니다.
-        if (filesToUpload.length > 0) {
-            console.log('새 이미지 파일 업로드 시작...');
-            const uploadedUrls = await uploadImageFiles(filesToUpload); // ⭐  API 호출
-            console.log('업로드 완료:', uploadedUrls);
-            
-            // 2. 기존 URL 목록과 새로 업로드된 URL 목록을 합칩니다.
-            finalImageUrls = [...existingImageUrls, ...uploadedUrls];
+        // 1) 이미지 업로드
+        let imageUrls = [];
+        if (imageFiles.length > 0) {
+          const res = await uploadImages(imageFiles);
+          if (res.urls && res.urls.length > 0) {
+            imageUrls = res.urls;
+          }
         }
-        
-        // 3. 게시글 Payload 준비
-        const payload = { 
-            title, 
-            content, 
-            imageUrls: finalImageUrls, // ⭐ URL 목록 포함 
-            // 필요한 경우 pricePerDay, size, category 등 옷 공유 관련 필드도 포함
+
+        // 2) 커뮤니티 글 생성
+        const payload = {
+          title: `[${category}] ${title.trim()}`,
+          content: content.trim(),
+          imageUrls,
         };
+        await createCommunityPost(payload);
 
-        // 4. 게시글 생성/수정 API 호출
-        if (isEdit) {
-            await updateCommunityPost(editTarget.id, payload); // PATCH /community/posts/{postId}
-        } else {
-            await createCommunityPost(payload); // POST /community/posts
-        }
-        
-        alert('완료되었습니다!');
-        // 글 작성 후 목록으로 돌아가는 대신 상세 페이지로 이동하거나,
-        // 현재는 간단히 목록으로 이동합니다.
-        setSocialPage('list'); 
+        alert("커뮤니티 글이 등록되었습니다! (새로고침하면 목록에 보입니다.)");
 
-      } catch (e) { 
-        console.error(e);
-        alert('오류가 발생했습니다: ' + e.message); 
+        // 폼 초기화 + 목록 화면으로
+        setCategory("스타일링 가이드");
+        setTitle("");
+        setContent("");
+        setImageFiles([]);
+        setPreviewUrls([]);
+        setSocialPage("list");
+      } catch (e) {
+        console.error("failed to create community post", e);
+        setError("커뮤니티 글 등록 중 오류가 발생했습니다.");
       } finally {
-          setIsUploading(false);
+        setSubmitting(false);
       }
     };
 
     return (
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded shadow-lg">
-        <button onClick={() => setSocialPage('list')} className="mb-4 text-indigo-600">&larr; 취소</button>
-        <h2 className="text-2xl font-bold mb-6">{isEdit ? '글 수정' : '커뮤니티 글쓰기'}</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          
-          <input 
-            value={title} 
-            onChange={e => setTitle(e.target.value)} 
-            placeholder="제목" 
-            className="w-full border p-2 rounded" 
-            required 
-            disabled={isUploading}
-          />
-          
-          <textarea 
-            value={content} 
-            onChange={e => setContent(e.target.value)} 
-            rows="5" 
-            placeholder="내용" 
-            className="w-full border p-2 rounded" 
-            required 
-            disabled={isUploading}
-          />
-
-          {/* ⭐ 이미지 업로드 UI */}
-          <div className="pt-4 border-t">
-              <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">이미지 추가 (최대 5개)</label>
-              <input 
-                  id="file-upload"
-                  type="file" 
-                  accept="image/*" 
-                  multiple 
-                  onChange={handleFileChange} 
-                  className="w-full border p-2 rounded file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                  disabled={isUploading}
-              />
-              
-              {/* ⭐ 이미지 프리뷰 영역 */}
-              <div className="mt-4 flex flex-wrap gap-3">
-                  {/* 기존 이미지 프리뷰 */}
-                  {existingImageUrls.map((url, index) => (
-                      <div key={url} className="relative w-24 h-24 rounded-lg overflow-hidden border border-gray-300">
-                          <img src={url} alt={`기존 이미지 ${index}`} className="w-full h-full object-cover" />
-                          <button 
-                              type="button" 
-                              onClick={() => removeExistingImageUrl(url)} 
-                              className="absolute top-0 right-0 bg-red-500 text-white rounded-bl-lg w-5 h-5 text-xs font-bold"
-                          >
-                              X
-                          </button>
-                      </div>
-                  ))}
-
-                  {/* 새로 선택된 파일 프리뷰 */}
-                  {filesToUpload.map((file, index) => (
-                      <div key={index} className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-indigo-500 opacity-80">
-                          {/* 임시 URL 생성 */}
-                          <img 
-                              src={URL.createObjectURL(file)} 
-                              alt={`업로드 예정 ${index}`} 
-                              className="w-full h-full object-cover" 
-                          />
-                          <button 
-                              type="button" 
-                              onClick={() => removeFileToUpload(index)} 
-                              className="absolute top-0 right-0 bg-red-500 text-white rounded-bl-lg w-5 h-5 text-xs font-bold"
-                          >
-                              X
-                          </button>
-                          <span className="absolute bottom-0 left-0 bg-indigo-500 text-white text-xs px-1">NEW</span>
-                      </div>
-                  ))}
-              </div>
+      <div className="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-2xl">
+        <button
+          onClick={() => setSocialPage("list")}
+          className="text-indigo-600 mb-4 hover:underline"
+        >
+          &larr; 커뮤니티로 돌아가기
+        </button>
+        <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
+          커뮤니티 글쓰기
+        </h2>
+        <form className="space-y-6" onSubmit={handleSubmit}>
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              카테고리
+            </label>
+            <select
+              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option>스타일링 가이드</option>
+              <option>면접 코디</option>
+              <option>졸업식 코디</option>
+              <option>코디 질문</option>
+              <option>OOTD</option>
+            </select>
           </div>
-          
-          <button 
-            type="submit" 
-            className={uploadButtonClass} 
-            disabled={isUploading || title.trim() === '' || content.trim() === ''} // 제목/내용이 비었거나 업로드 중일 때 비활성화
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              제목
+            </label>
+            <input
+              type="text"
+              className="w-full px-4 py-3 border rounded-lg"
+              placeholder="예: 가을 캠퍼스룩 추천"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              사진 등록 (선택)
+            </label>
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+            {previewUrls.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                {previewUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="미리보기"
+                    className="w-full h-24 object-cover rounded-lg"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              내용
+            </label>
+            <textarea
+              className="w-full px-4 py-3 border rounded-lg"
+              rows="6"
+              placeholder="예: 가을에 입기 좋은 5가지 아이템을 소개합니다..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+            ></textarea>
+          </div>
+
+          {error && (
+            <p className="text-red-500 text-sm italic mt-1">{error}</p>
+          )}
+
+          <button
+            type="submit"
+            className={uploadButtonClass}
+            disabled={submitting}
           >
-            {isUploading ? '이미지 업로드 중...' : (isEdit ? '수정 완료' : '등록하기')}
+            {submitting ? "올리는 중..." : "글 올리기"}
           </button>
         </form>
       </div>
     );
   }
 
-  // --- [4] 검색 페이지 ---
+
+  // --- (Part 5-4) 텍스트 검색 페이지 ---
   function SocialTextSearchPage() {
     const [q, setQ] = useState('');
     const [res, setRes] = useState([]);
