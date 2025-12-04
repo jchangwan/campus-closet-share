@@ -1,0 +1,19 @@
+name: Security Check
+
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    - name: Install Bandit
+      run: pip install bandit
+    - name: Run Security Scan
+      # 아래 run 옆에 | 기호를 추가하여 문법 오류를 방지했습니다.
+      run: |
+        bandit -r . -f custom --msg-template "{abspath}:{line}: {test_id}[bandit]: {msg}" || true
