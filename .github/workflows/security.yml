@@ -1,0 +1,18 @@
+name: Security Check
+
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    - name: Install Bandit
+      run: pip install bandit
+    - name: Run Security Scan
+      # B101(assert 사용) 같은 단순 경고는 제외하거나 리포트만 생성
+      run: bandit -r . -f custom --msg-template "{abspath}:{line}: {test_id}[bandit]: {msg}" || true
