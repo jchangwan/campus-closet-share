@@ -1,8 +1,7 @@
-version: "3.9"
-
 services:
   db:
     image: mysql:8
+    container_name: campus-db
     environment:
       MYSQL_ROOT_PASSWORD: password
       MYSQL_DATABASE: campus
@@ -11,19 +10,29 @@ services:
     volumes:
       - db_data:/var/lib/mysql
 
+  ai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    container_name: ai-server
+    ports:
+      - "8081:8000"        # 호스트 8081 -> 컨테이너 8000
+    restart: unless-stopped
+
   api-java:
     build: ./api-java
-    ports:
-      - "8080:8080"
+    container_name: api-java
     depends_on:
       - db
+      - ai-server
+    ports:
+      - "8080:8080"
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: password
       SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration,org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration
-
+      AI_SERVER_URL: http://ai-server:8000   # ai.server.url 로 매핑됨
 
 volumes:
   db_data:
-

@@ -4,7 +4,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,44 +26,52 @@ public class CommunityController {
         this.userRepo = userRepo;
     }
 
-    // 아직 인증 안 붙였으니까 임시로 userId = 1 고정
-    private Long mockUserId() {
-        return 1L;
-    }
-
-    // ===== 1) 커뮤니티 글 목록: GET /community/posts?sort=latest|popular =====
+    // ===== 1) 커뮤니티 글 목록: GET /community/posts =====
     @GetMapping("/posts")
-    public List<PostListResponse> list(@RequestParam(defaultValue = "latest") String sort) {
-        List<CommunityPost> posts;
+    public List<ListResponse> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "latest") String sort
+    ) {
+        List<CommunityPost> all = postRepo.findAll();
 
+        Comparator<CommunityPost> comparator;
         if ("popular".equalsIgnoreCase(sort)) {
-            posts = postRepo.findAllByOrderByLikeCountDesc();
+            comparator = Comparator
+                    .comparingInt(CommunityPost::getLikeCount)
+                    .thenComparing(CommunityPost::getCreatedAt)
+                    .reversed();
         } else {
-            posts = postRepo.findAllByOrderByCreatedAtDesc();
+            // latest
+            comparator = Comparator.comparing(CommunityPost::getCreatedAt).reversed();
         }
 
-        return posts.stream()
-                .map(PostListResponse::from)
+        return all.stream()
+                .sorted(comparator)
+                .skip((long) page * size)
+                .limit(size)
+                .map(ListResponse::from)
                 .collect(Collectors.toList());
     }
 
-    // ===== 2) 글 상세: GET /community/posts/{id} =====
+    // ===== 2) 커뮤니티 글 상세: GET /community/posts/{id} =====
     @GetMapping("/posts/{id}")
-    public PostDetailResponse get(@PathVariable Long id) {
+    public DetailResponse get(@PathVariable Long id) {
         CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
 
         List<CommunityComment> comments = commentRepo.findByPostOrderByCreatedAtAsc(post);
 
-        return PostDetailResponse.from(post, comments);
+        return DetailResponse.from(post, comments);
     }
 
     // ===== 3) 글 작성: POST /community/posts =====
     @PostMapping("/posts")
-    public PostDetailResponse create(@RequestBody CreatePostRequest req) {
-        Long userId = mockUserId();
-
+    public DetailResponse create(
+            @RequestHeader("X-USER-ID") Long userId,
+            @RequestBody CreatePostRequest req
+    ) {
         if (req.title == null || req.title.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
         }
@@ -71,224 +81,218 @@ public class CommunityController {
 
         User author = userRepo.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Author user not found"));
+                        HttpStatus.NOT_FOUND, "User not found"));
 
-        CommunityPost post = new CommunityPost(
-                author,
-                req.title,
-                req.content,
-                req.thumbnailUrl
-        );
+        CommunityPost post = new CommunityPost(author, req.title, req.content, req.imageUrls);
         CommunityPost saved = postRepo.save(post);
 
-        return PostDetailResponse.from(saved, List.of());
+        return DetailResponse.from(saved, List.of());
     }
 
     // ===== 4) 글 수정: PATCH /community/posts/{id} =====
     @PatchMapping("/posts/{id}")
-    public PostDetailResponse update(@PathVariable Long id,
-                                     @RequestBody UpdatePostRequest req) {
-
-        Long userId = mockUserId();
-
+    public DetailResponse update(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id,
+            @RequestBody UpdatePostRequest req
+    ) {
         CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
-        // 작성자만 수정 가능
+
         if (!post.getAuthor().getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can edit only your own community post");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can edit only your own post");
         }
+
         if (req.title != null && !req.title.isBlank()) {
             post.setTitle(req.title);
         }
         if (req.content != null && !req.content.isBlank()) {
             post.setContent(req.content);
         }
-        if (req.thumbnailUrl != null) {
-            post.setThumbnailUrl(req.thumbnailUrl);
+        if (req.imageUrls != null) {
+            post.setImageUrls(req.imageUrls);
         }
 
         CommunityPost saved = postRepo.save(post);
         List<CommunityComment> comments = commentRepo.findByPostOrderByCreatedAtAsc(saved);
-
-        return PostDetailResponse.from(saved, comments);
+        return DetailResponse.from(saved, comments);
     }
 
     // ===== 5) 글 삭제: DELETE /community/posts/{id} =====
     @DeleteMapping("/posts/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) {
-        Long userId = mockUserId();
-
+    public void delete(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id
+    ) {
         CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
 
-        // 작성자만 삭제 가능
         if (!post.getAuthor().getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can delete only your own community post");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can delete only your own post");
         }
 
         commentRepo.deleteAllByPost(post);
         postRepo.delete(post);
     }
 
-
-    // ===== 6) 좋아요 증가: POST /community/posts/{id}/like =====
+    // ===== 6) 좋아요 토글 (단순 카운트 증가 버전): POST /community/posts/{id}/like =====
     @PostMapping("/posts/{id}/like")
-    public LikeResponse like(@PathVariable Long id) {
+    public LikeResponse like(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id
+    ) {
         CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
 
-        // 간단 버전: 누르면 무조건 +1
+        // 간단하게: 누가 눌렀든 항상 +1 (사용자별 토글은 별도 엔티티 필요)
         post.setLikeCount(post.getLikeCount() + 1);
         CommunityPost saved = postRepo.save(post);
 
-        LikeResponse res = new LikeResponse();
-        res.postId = saved.getId();
-        res.likeCount = saved.getLikeCount();
-        return res;
+        LikeResponse resp = new LikeResponse();
+        resp.postId = saved.getId();
+        resp.likeCount = saved.getLikeCount();
+        resp.liked = true;
+        return resp;
     }
 
-    // ===== 7) 댓글 목록: GET /community/posts/{postId}/comments =====
-    @GetMapping("/posts/{postId}/comments")
-    public List<CommentResponse> listComments(@PathVariable Long postId) {
-        CommunityPost post = postRepo.findById(postId)
+    // ===== 7) 댓글 목록: GET /community/posts/{id}/comments =====
+    @GetMapping("/posts/{id}/comments")
+    public List<CommentDto> listComments(@PathVariable Long id) {
+        CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
 
-        List<CommunityComment> comments = commentRepo.findByPostOrderByCreatedAtAsc(post);
-        return comments.stream()
-                .map(CommentResponse::from)
+        return commentRepo.findByPostOrderByCreatedAtAsc(post)
+                .stream()
+                .map(CommentDto::from)
                 .collect(Collectors.toList());
     }
 
-    // ===== 8) 댓글 작성: POST /community/posts/{postId}/comments =====
-    @PostMapping("/posts/{postId}/comments")
-    public CommentResponse addComment(@PathVariable Long postId,
-                                      @RequestBody CreateCommentRequest req) {
-        Long userId = mockUserId();
-
+    // ===== 8) 댓글 작성: POST /community/posts/{id}/comments =====
+    @PostMapping("/posts/{id}/comments")
+    public CommentDto createComment(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id,
+            @RequestBody CreateCommentRequest req
+    ) {
         if (req.content == null || req.content.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "content is required");
         }
 
-        CommunityPost post = postRepo.findById(postId)
+        CommunityPost post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Community post not found"));
 
         User author = userRepo.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Author user not found"));
+                        HttpStatus.NOT_FOUND, "User not found"));
 
         CommunityComment comment = new CommunityComment(post, author, req.content);
         CommunityComment saved = commentRepo.save(comment);
 
-        // 댓글 수 갱신
-        post.setCommentCount(post.getCommentCount() + 1);
-        postRepo.save(post);
-
-        return CommentResponse.from(saved);
+        return CommentDto.from(saved);
     }
 
     // ===== 9) 댓글 삭제: DELETE /community/comments/{commentId} =====
     @DeleteMapping("/comments/{commentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteComment(@PathVariable Long commentId) {
-        Long userId = mockUserId();
-
+    public void deleteComment(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long commentId
+    ) {
         CommunityComment comment = commentRepo.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Comment not found"));
 
-        // 댓글 작성자만 삭제 가능
         if (!comment.getAuthor().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can delete only your own comment");
         }
 
-        CommunityPost post = comment.getPost();
-
         commentRepo.delete(comment);
-
-        int newCount = Math.max(0, post.getCommentCount() - 1);
-        post.setCommentCount(newCount);
-        postRepo.save(post);
     }
 
+    // ===== DTO들 =====
 
-    // ===== DTO 들 =====
-
-    // 목록용 DTO
-    public static class PostListResponse {
+    public static class ListResponse {
         public Long id;
-        public Long authorId;
-        public String authorNickname;
         public String title;
         public String content;
+        public Instant createdAt;
+        public Long authorId;
+        public String authorNickname;
+        public String profilePic;
         public String thumbnailUrl;
         public int likeCount;
-        public int commentCount;
-        public java.time.Instant createdAt;
 
-        public static PostListResponse from(CommunityPost p) {
-            PostListResponse r = new PostListResponse();
+        public static ListResponse from(CommunityPost p) {
+            ListResponse r = new ListResponse();
             r.id = p.getId();
-            r.authorId = p.getAuthor().getId();
-            r.authorNickname = p.getAuthor().getNickname();
             r.title = p.getTitle();
             r.content = p.getContent();
-            r.thumbnailUrl = p.getThumbnailUrl();
-            r.likeCount = p.getLikeCount();
-            r.commentCount = p.getCommentCount();
             r.createdAt = p.getCreatedAt();
+            r.likeCount = p.getLikeCount();
+
+            User author = p.getAuthor();
+            if (author != null) {
+                r.authorId = author.getId();
+                r.authorNickname = author.getNickname();
+                r.profilePic = author.getProfileImageUrl();
+            }
+            r.thumbnailUrl = p.getThumbnailUrl();
             return r;
         }
     }
 
-    // 상세용 DTO
-    public static class PostDetailResponse {
+    public static class DetailResponse {
         public Long id;
-        public Long authorId;
-        public String authorNickname;
         public String title;
         public String content;
-        public String thumbnailUrl;
+        public Instant createdAt;
+        public Instant updatedAt;
+        public Long authorId;
+        public String authorNickname;
+        public String profilePic;
+        public List<String> imageUrls;
         public int likeCount;
-        public int commentCount;
-        public java.time.Instant createdAt;
-        public java.time.Instant updatedAt;
-        public List<CommentResponse> comments;
+        public List<CommentDto> comments;
 
-        public static PostDetailResponse from(CommunityPost p, List<CommunityComment> comments) {
-            PostDetailResponse r = new PostDetailResponse();
+        public static DetailResponse from(CommunityPost p, List<CommunityComment> comments) {
+            DetailResponse r = new DetailResponse();
             r.id = p.getId();
-            r.authorId = p.getAuthor().getId();
-            r.authorNickname = p.getAuthor().getNickname();
             r.title = p.getTitle();
             r.content = p.getContent();
-            r.thumbnailUrl = p.getThumbnailUrl();
-            r.likeCount = p.getLikeCount();
-            r.commentCount = p.getCommentCount();
             r.createdAt = p.getCreatedAt();
             r.updatedAt = p.getUpdatedAt();
+            r.likeCount = p.getLikeCount();
+            r.imageUrls = p.getImageUrls();
+
+            User author = p.getAuthor();
+            if (author != null) {
+                r.authorId = author.getId();
+                r.authorNickname = author.getNickname();
+                r.profilePic = author.getProfileImageUrl();
+            }
+
             r.comments = comments.stream()
-                    .map(CommentResponse::from)
+                    .map(CommentDto::from)
                     .collect(Collectors.toList());
             return r;
         }
     }
 
-    // 댓글 응답 DTO
-    public static class CommentResponse {
+    public static class CommentDto {
         public Long id;
         public Long authorId;
         public String authorNickname;
         public String content;
         public LocalDateTime createdAt;
 
-        public static CommentResponse from(CommunityComment c) {
-            CommentResponse r = new CommentResponse();
+        public static CommentDto from(CommunityComment c) {
+            CommentDto r = new CommentDto();
             r.id = c.getId();
             r.authorId = c.getAuthor().getId();
             r.authorNickname = c.getAuthor().getNickname();
@@ -298,27 +302,24 @@ public class CommunityController {
         }
     }
 
-    // 좋아요 응답 DTO
     public static class LikeResponse {
         public Long postId;
         public int likeCount;
+        public boolean liked;
     }
 
-    // 글 생성 요청 DTO
     public static class CreatePostRequest {
         public String title;
         public String content;
-        public String thumbnailUrl;
+        public List<String> imageUrls;
     }
 
-    // 글 수정 요청 DTO
     public static class UpdatePostRequest {
         public String title;
         public String content;
-        public String thumbnailUrl;
+        public List<String> imageUrls;
     }
 
-    // 댓글 생성 요청 DTO
     public static class CreateCommentRequest {
         public String content;
     }

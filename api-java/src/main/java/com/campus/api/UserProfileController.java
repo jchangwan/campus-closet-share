@@ -14,16 +14,13 @@ public class UserProfileController {
         this.userRepo = userRepo;
     }
 
-    // 인증 붙기 전까지는 임시로 userId = 1 고정
-    private Long mockUserId() {
-        return 1L;
-    }
-
-    // ===== 프로필 조회: GET /users/me =====
+    // ==============================
+    // 1) 내 프로필 조회
+    // ==============================
     @GetMapping("/me")
-    public ProfileResponse me() {
-        Long userId = mockUserId();
-
+    public ProfileResponse me(
+            @RequestHeader("X-USER-ID") Long userId
+    ) {
         User u = userRepo.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "User not found"));
@@ -31,11 +28,14 @@ public class UserProfileController {
         return ProfileResponse.from(u);
     }
 
-    // ===== 프로필 수정: PUT /users/me =====
+    // ==============================
+    // 2) 내 프로필 수정
+    // ==============================
     @PutMapping("/me")
-    public ProfileResponse updateProfile(@RequestBody ProfileUpdateRequest req) {
-        Long userId = mockUserId();
-
+    public ProfileResponse updateProfile(
+            @RequestHeader("X-USER-ID") Long userId,
+            @RequestBody ProfileUpdateRequest req
+    ) {
         User u = userRepo.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "User not found"));
@@ -49,12 +49,17 @@ public class UserProfileController {
         if (req.profileImageUrl != null) {
             u.setProfileImageUrl(req.profileImageUrl);
         }
+        if (req.personalEmail != null) {
+            u.setPersonalEmail(req.personalEmail);
+        }
 
         User saved = userRepo.save(u);
         return ProfileResponse.from(saved);
     }
 
-    // ===== 다른 유저 프로필 보기: GET /users/{id} (선택 기능) =====
+    // ==============================
+    // 3) 다른 유저 프로필 조회
+    // ==============================
     @GetMapping("/{id}")
     public ProfileResponse getUserById(@PathVariable Long id) {
         User u = userRepo.findById(id)
@@ -63,7 +68,9 @@ public class UserProfileController {
         return ProfileResponse.from(u);
     }
 
-    // ===== DTO =====
+    // ==============================
+    // DTO
+    // ==============================
 
     public static class ProfileResponse {
         public Long id;
@@ -71,6 +78,7 @@ public class UserProfileController {
         public String nickname;
         public String bio;
         public String profileImageUrl;
+        public String personalEmail;
 
         public static ProfileResponse from(User u) {
             ProfileResponse r = new ProfileResponse();
@@ -79,6 +87,7 @@ public class UserProfileController {
             r.nickname = u.getNickname();
             r.bio = u.getBio();
             r.profileImageUrl = u.getProfileImageUrl();
+            r.personalEmail = u.getPersonalEmail();
             return r;
         }
     }
@@ -87,5 +96,6 @@ public class UserProfileController {
         public String nickname;
         public String bio;
         public String profileImageUrl;
+        public String personalEmail;
     }
 }

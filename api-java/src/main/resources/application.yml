@@ -21,5 +21,6 @@ server:
 
 
 ai:
-  recommend:
-    url: http://ai-model:8000/recommend
+  server:
+    url: http://localhost:8081
+

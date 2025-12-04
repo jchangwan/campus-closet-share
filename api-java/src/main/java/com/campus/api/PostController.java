@@ -3,6 +3,7 @@ package com.campus.api;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -23,11 +24,6 @@ public class PostController {
         this.postRepo = postRepo;
         this.commentRepo = commentRepo;
         this.userRepo = userRepo;
-    }
-
-    // 아직 인증 안 붙였으니까 임시로 userId = 1 고정
-    private Long mockUserId() {
-        return 1L;
     }
 
     // ===== 1) 게시글 목록 조회: GET /posts =====
@@ -72,9 +68,10 @@ public class PostController {
 
     // ===== 3) 게시글 작성: POST /posts =====
     @PostMapping
-    public DetailResponse create(@RequestBody CreatePostRequest req) {
-        Long userId = mockUserId();
-
+    public DetailResponse create(
+            @RequestHeader("X-USER-ID") Long userId,
+            @RequestBody CreatePostRequest req
+    ) {
         if (req.title == null || req.title.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
         }
@@ -82,6 +79,7 @@ public class PostController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "content is required");
         }
 
+        // imageUrl 은 프론트에서 FileController 등을 통해 먼저 업로드 후 URL을 넘겨주는 방식
         Post post = new Post(
                 userId,
                 req.title,
@@ -107,9 +105,11 @@ public class PostController {
 
     // ===== 4) 게시글 수정: PUT /posts/{id} =====
     @PutMapping("/{id}")
-    public DetailResponse update(@PathVariable Long id,
-                                 @RequestBody UpdatePostRequest req) {
-        Long userId = mockUserId();
+    public DetailResponse update(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id,
+            @RequestBody UpdatePostRequest req
+    ) {
 
         Post post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -152,10 +152,12 @@ public class PostController {
 
     // ===== 5) 게시글 삭제: DELETE /posts/{id} =====
     @DeleteMapping("/{id}")
+    @Transactional
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) {
-        Long userId = mockUserId();
-
+    public void delete(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id
+    ) {
         Post post = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Post not found"));
@@ -174,9 +176,10 @@ public class PostController {
     // ===== 6) 댓글 삭제: DELETE /posts/comments/{commentId} =====
     @DeleteMapping("/comments/{commentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteComment(@PathVariable Long commentId) {
-        Long userId = mockUserId();
-
+    public void deleteComment(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long commentId
+    ) {
         Comment comment = commentRepo.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Comment not found"));
@@ -186,6 +189,35 @@ public class PostController {
         }
 
         commentRepo.delete(comment);
+    }
+    // ===== 7) 댓글 작성: POST /posts/{id}/comments =====
+    @PostMapping("/{id}/comments")
+    public CommentDto createComment(
+            @RequestHeader("X-USER-ID") Long userId,
+            @PathVariable Long id,
+            @RequestBody CreateCommentRequest req
+    ) {
+        if (req.content == null || req.content.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "content is required");
+        }
+
+        Post post = postRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Post not found"));
+
+        User author = userRepo.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "User not found"));
+
+        Comment comment = new Comment(post, author, req.content);
+        Comment saved = commentRepo.save(comment);
+
+        return CommentDto.from(saved);
+    }
+
+    // ===== DTO =====
+    public static class CreateCommentRequest {
+        public String content;
     }
 
     // ====== DTO들 ======
@@ -272,7 +304,7 @@ public class PostController {
     public static class CreatePostRequest {
         public String title;
         public String content;
-        public String imageUrl;
+        public String imageUrl; // 이미지 업로드 후 URL
     }
 
     public static class UpdatePostRequest {

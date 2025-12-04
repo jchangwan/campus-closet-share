@@ -37,10 +37,10 @@ export async function updateCommunityPost(postId, payload) {
 // 5) 커뮤니티 글 삭제
 // DELETE /community/posts/{postId}
 export async function deleteCommunityPost(postId) {
-  const res = await api.delete(`/community/posts/${postId}`);
-  // 204라 body 없을 수도 있으니 그냥 true만 리턴
+  await api.delete(`/community/posts/${postId}`);
   return true;
 }
+
 
 // 6) 좋아요 토글
 // POST /community/posts/{postId}/like

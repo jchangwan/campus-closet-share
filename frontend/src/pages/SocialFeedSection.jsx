@@ -5,8 +5,10 @@ import {
   listCommunityPosts,
   getCommunityPost,
   createCommunityComment,
+  createCommunityPost,
+  deleteCommunityPost,
 } from '../api/community';
-
+import { uploadImages } from '../api/files';
 // ★ 그라데이션 버튼 스타일
 const buttonClass =
   'w-auto bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300';
@@ -18,7 +20,7 @@ const uploadButtonClass =
 // 1. App.jsx로부터 props 받기
 //   - socialPosts: 혹시 모를 fallback용 (API 실패 시 사용 가능)
 //   - onToggleSave: 북마크(저장) 기능은 일단 그대로 두고, 로컬 상태 기반
-export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
+export default function SocialFeedSection({ socialPosts = [], onToggleSave, currentUser, }) {
   const POSTS_PER_PAGE = 4;
   const location = useLocation();
   const navigate = useNavigate();
@@ -248,6 +250,29 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
         alert('댓글 작성 중 오류가 발생했습니다.');
       }
     };
+    const handleDeletePost = async () => {
+      if (!window.confirm("정말 삭제하시겠습니까?")) return;
+
+      try {
+
+        await deleteCommunityPost(post.id);
+
+        alert("삭제되었습니다.");
+        setSocialPage("list");
+
+        // 목록에서 바로 지우고 싶으면 아래까지 해줘도 됨
+        setPosts(prev => prev.filter(p => p.id !== post.id));
+      } catch (e) {
+        console.error("삭제 실패", e);
+        // 상태 코드까지 확인해보자 (권한 문제 등)
+        if (e.response) {
+          console.error("status:", e.response.status, "data:", e.response.data);
+        }
+        alert("삭제 중 오류가 발생했습니다.");
+      }
+    };
+
+
 
     if (loadingDetail) {
       return (
@@ -274,6 +299,12 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
         </div>
       );
     }
+    // 내가 쓴 커뮤니티 글인지 체크
+    const isMyPost =
+      currentUser &&
+      currentUser.id &&
+      post &&
+      (post.authorId === currentUser.id || post.author?.id === currentUser.id);
 
     return (
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-2xl overflow-hidden">
@@ -288,13 +319,26 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
             <span className="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
               커뮤니티
             </span>
-            <button
-              onClick={() => onToggleSave && onToggleSave(post.id)}
-              className="p-1"
-            >
-              <BookmarkIcon filled={post.isSaved} className="w-7 h-7" />
-            </button>
-          </div>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => onToggleSave && onToggleSave(post.id)}
+                className="p-1"
+              >
+                <BookmarkIcon filled={post.isSaved} className="w-7 h-7" />
+              </button>
+
+              {/* 🔥 삭제 버튼: 본인 글일 때만 표시 */}
+              {isMyPost && (
+                <button
+                  onClick={handleDeletePost}
+                  className="text-red-500 border border-red-400 px-3 py-1 rounded hover:bg-red-50"
+                >
+                  삭제
+                </button>
+              )}
+            </div>
+
+            </div>
           <h2 className="text-3xl font-bold text-gray-900 mt-2">
             {post.title}
           </h2>
@@ -377,12 +421,75 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
   }
 
   // --- (Part 5-3) 자유 커뮤니티 글쓰기 ---
-  // ※ 아직 API에 연결하지 않은 상태. 나중에 createCommunityPost + /files/images 연동 가능.
+
   function UploadSocialPostPage() {
+    const [category, setCategory] = useState("스타일링 가이드");
+    const [title, setTitle] = useState("");
+    const [content, setContent] = useState("");
+    const [imageFiles, setImageFiles] = useState([]);
+    const [previewUrls, setPreviewUrls] = useState([]);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState("");
+
+    const handleFileChange = (e) => {
+      const files = Array.from(e.target.files || []);
+      setImageFiles(files);
+      setPreviewUrls(files.map((f) => URL.createObjectURL(f)));
+    };
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setError("");
+
+      if (!title.trim()) {
+        setError("제목을 입력해주세요.");
+        return;
+      }
+      if (!content.trim()) {
+        setError("내용을 입력해주세요.");
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        // 1) 이미지 업로드
+        let imageUrls = [];
+        if (imageFiles.length > 0) {
+          const res = await uploadImages(imageFiles);
+          if (res.urls && res.urls.length > 0) {
+            imageUrls = res.urls;
+          }
+        }
+
+        // 2) 커뮤니티 글 생성
+        const payload = {
+          title: `[${category}] ${title.trim()}`,
+          content: content.trim(),
+          imageUrls,
+        };
+        await createCommunityPost(payload);
+
+        alert("커뮤니티 글이 등록되었습니다! (새로고침하면 목록에 보입니다.)");
+
+        // 폼 초기화 + 목록 화면으로
+        setCategory("스타일링 가이드");
+        setTitle("");
+        setContent("");
+        setImageFiles([]);
+        setPreviewUrls([]);
+        setSocialPage("list");
+      } catch (e) {
+        console.error("failed to create community post", e);
+        setError("커뮤니티 글 등록 중 오류가 발생했습니다.");
+      } finally {
+        setSubmitting(false);
+      }
+    };
+
     return (
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-2xl">
         <button
-          onClick={() => setSocialPage('list')}
+          onClick={() => setSocialPage("list")}
           className="text-indigo-600 mb-4 hover:underline"
         >
           &larr; 커뮤니티로 돌아가기
@@ -390,12 +497,16 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
         <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
           커뮤니티 글쓰기
         </h2>
-        <form className="space-y-6">
+        <form className="space-y-6" onSubmit={handleSubmit}>
           <div>
             <label className="block text-gray-700 text-sm font-bold mb-2">
               카테고리
             </label>
-            <select className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <select
+              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
               <option>스타일링 가이드</option>
               <option>면접 코디</option>
               <option>졸업식 코디</option>
@@ -411,6 +522,8 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
               type="text"
               className="w-full px-4 py-3 border rounded-lg"
               placeholder="예: 가을 캠퍼스룩 추천"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
           </div>
           <div>
@@ -419,8 +532,23 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
             </label>
             <input
               type="file"
+              multiple
+              accept="image/*"
+              onChange={handleFileChange}
               className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
             />
+            {previewUrls.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                {previewUrls.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="미리보기"
+                    className="w-full h-24 object-cover rounded-lg"
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-gray-700 text-sm font-bold mb-2">
@@ -430,15 +558,27 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave }) {
               className="w-full px-4 py-3 border rounded-lg"
               rows="6"
               placeholder="예: 가을에 입기 좋은 5가지 아이템을 소개합니다..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
             ></textarea>
           </div>
-          <button type="submit" className={uploadButtonClass}>
-            글 올리기
+
+          {error && (
+            <p className="text-red-500 text-sm italic mt-1">{error}</p>
+          )}
+
+          <button
+            type="submit"
+            className={uploadButtonClass}
+            disabled={submitting}
+          >
+            {submitting ? "올리는 중..." : "글 올리기"}
           </button>
         </form>
       </div>
     );
   }
+
 
   // --- (Part 5-4) 텍스트 검색 페이지 ---
   function SocialTextSearchPage() {
