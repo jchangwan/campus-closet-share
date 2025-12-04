@@ -14,5 +14,6 @@ jobs:
     - name: Install Bandit
       run: pip install bandit
     - name: Run Security Scan
-      # B101(assert 사용) 같은 단순 경고는 제외하거나 리포트만 생성
-      run: bandit -r . -f custom --msg-template "{abspath}:{line}: {test_id}[bandit]: {msg}" || true
+      # 아래 run 옆에 | 기호를 추가하여 문법 오류를 방지했습니다.
+      run: |
+        bandit -r . -f custom --msg-template "{abspath}:{line}: {test_id}[bandit]: {msg}" || true
