@@ -1,0 +1,18 @@
+// src/api/users.js
+import api from "./client";
+
+export async function getMyProfile() {
+  const res = await api.get("/users/me");
+  return res.data;
+}
+
+export async function getUserById(id) {
+  const res = await api.get(`/users/${id}`);
+  return res.data;
+}
+
+export async function updateMyProfile(payload) {
+  // 🔥 여기 PATCH → PUT 으로 변경
+  const res = await api.put("/users/me", payload);
+  return res.data;
+}

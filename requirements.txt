@@ -1,0 +1,7 @@
+flask
+numpy>=1.26.0
+torch
+torchvision
+sentence-transformers
+faiss-cpu
+pillow
