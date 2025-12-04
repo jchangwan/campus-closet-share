@@ -40,8 +40,9 @@ export async function getUnreadCount() {
   return res.data;
 }
 
-export async function getMessage(id) {
-  const res = await api.get(`/messages/${id}`);
+// 4. (필요 시 유지) 읽지 않은 개수
+export async function getUnreadCount() {
+  const res = await api.get('/messages/unread-count');
   return res.data;
 }
 

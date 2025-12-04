@@ -3,7 +3,13 @@ import api from "./client";
 
 // 필요하면 필터 파라미터 확장
 function buildParams(params = {}) {
-  return params;
+  const query = {};
+  Object.keys(params).forEach(key => {
+    if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
+      query[key] = params[key];
+    }
+  });
+  return query;
 }
 
 // 1) 게시글 목록 조회 (옷장 피드 목록)

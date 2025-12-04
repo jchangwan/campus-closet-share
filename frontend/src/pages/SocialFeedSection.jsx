@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { BookmarkIcon } from '../components/Icons';
+import { BookmarkIcon } from '../components/Icons'; 
 import {
   listCommunityPosts,
   getCommunityPost,
+  createCommunityPost,
+  updateCommunityPost,
+  deleteCommunityPost,
   createCommunityComment,
   createCommunityPost,
   deleteCommunityPost,
@@ -25,73 +28,68 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
   const location = useLocation();
   const navigate = useNavigate();
 
-  // 어떤 화면인지 (목록/상세/글쓰기/검색)
-  const [socialPage, setSocialPage] = useState(() => {
-    if (location.state?.postId) return 'detail'; // 1. postId 있으면 상세페이지
-    if (location.state?.openUpload) return 'upload'; // 2. 글쓰기 요청이면 글쓰기
-    return 'list'; // 3. 아니면 목록
-  });
+  // 화면 상태
+  const [socialPage, setSocialPage] = useState('list');
+  const [selectedPostId, setSelectedPostId] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
 
-  const [selectedPostId, setSelectedPostId] = useState(
-    () => location.state?.postId || null,
-  );
-
-  // 커뮤니티 글 목록 (실제 API에서 가져옴)
+  // 데이터 상태
   const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // location.state가 바뀔 때마다 페이지 전환
+  // 초기 로딩
   useEffect(() => {
     if (location.state?.postId) {
       setSelectedPostId(location.state.postId);
       setSocialPage('detail');
     } else if (location.state?.openUpload) {
+      setEditTarget(null);
       setSocialPage('upload');
     }
   }, [location.state]);
 
-  // ★ 커뮤니티 목록 API 호출
+  // ★ 목록 조회
   useEffect(() => {
-    async function fetchCommunityPosts() {
+    if (socialPage !== 'list') return;
+
+    async function fetchPosts() {
       try {
         setLoading(true);
         setError(null);
-        // page=0, size=20, sort=latest 기준
+        
         const data = await listCommunityPosts({
           page: 0,
           size: 20,
-          sort: 'latest',
+          sort: 'createdAt,desc'
         });
 
         if (Array.isArray(data)) {
           setPosts(data);
+        } else if (data && data.content) {
+          setPosts(data.content);
         } else {
           setPosts([]);
         }
       } catch (e) {
-        console.error('커뮤니티 목록 조회 실패:', e);
-        setError('커뮤니티 글을 불러오는 중 오류가 발생했습니다.');
-        // 필요하면 mock 데이터 fallback
-        // setPosts(socialPosts || []);
-        setPosts([]);
+        console.error(e);
+        setError('글 목록을 불러오지 못했습니다.');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchCommunityPosts();
-  }, [socialPosts]);
+    fetchPosts();
+  }, [socialPage]); 
 
-  // --- (Part 5-1) 자유 커뮤니티 피드 (목록) ---
+  // --- [1] 목록 페이지 ---
   function SocialFeedPage() {
     const [displayedPosts, setDisplayedPosts] = useState([]);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
 
     useEffect(() => {
-      const initialPosts = posts.slice(0, POSTS_PER_PAGE);
-      setDisplayedPosts(initialPosts);
+      setDisplayedPosts(posts.slice(0, POSTS_PER_PAGE));
       setHasMore(posts.length > POSTS_PER_PAGE);
       setPage(1);
     }, [posts]);
@@ -104,106 +102,47 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
       setHasMore(posts.length > newPosts.length);
     };
 
-    const SocialPostCard = ({ post }) => (
-      <div
-        onClick={() => {
-          setSelectedPostId(post.id);
-          setSocialPage('detail');
-        }}
-        className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 cursor-pointer hover:shadow-lg transition-shadow duration-300"
-      >
-        {post.thumbnailUrl && (
-          <img
-            src={post.thumbnailUrl}
-            alt={post.title}
-            className="w-full h-48 object-cover"
-          />
-        )}
-        <div className="p-4">
-          <div className="flex justify-between items-start">
-            <span className="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
-              커뮤니티
-            </span>
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                onToggleSave && onToggleSave(post.id);
-              }}
-              className="p-1 -mt-1 -mr-1"
-            >
-              <BookmarkIcon filled={post.isSaved} />
-            </button>
-          </div>
-          <h3 className="text-xl font-bold text-gray-900">{post.title}</h3>
-          <p className="text-gray-700 text-sm my-2 truncate">
-            {post.content}
-          </p>
-          <div className="flex justify-between items-center mt-4">
-            <div className="flex items-center space-x-2">
-              <img
-                src={
-                  post.profilePic ||
-                  'https://placehold.co/40x40/E2E8F0/A0AEC0?text=U'
-                }
-                alt={post.authorNickname}
-                className="w-8 h-8 rounded-full"
-              />
-              <div>
-                <p className="font-semibold text-sm">
-                  {post.authorNickname || '익명'}
-                </p>
-                {/* author university 정보가 없어서 생략 */}
-              </div>
-            </div>
-            <span className="text-sm text-gray-500">
-              {new Date(post.createdAt).toLocaleString('ko-KR', {
-                dateStyle: 'short',
-                timeStyle: 'short',
-              })}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-
-    if (loading) {
-      return (
-        <div className="text-center text-gray-500 py-10">
-          커뮤니티 글을 불러오는 중입니다...
-        </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <div className="text-center text-red-500 py-10">
-          {error}
-          <br />
-          잠시 후 다시 시도해보세요.
-        </div>
-      );
-    }
-
-    if (!posts.length) {
-      return (
-        <div className="text-center text-gray-500 py-10">
-          아직 등록된 커뮤니티 글이 없습니다.
-          <br />
-          첫 글을 올려보세요!
-        </div>
-      );
-    }
-
     return (
       <div className="max-w-2xl mx-auto space-y-6">
-        {displayedPosts.map(post => (
-          <SocialPostCard key={post.id} post={post} />
-        ))}
-        {hasMore && (
-          <button
-            onClick={handleLoadMore}
-            className="w-full bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300 transition-all duration-300"
-          >
+        {loading ? (
+          <div className="text-center py-10">로딩 중...</div>
+        ) : error ? (
+          <div className="text-center text-red-500 py-10">{error}</div>
+        ) : posts.length === 0 ? (
+          <div className="text-center py-10 text-gray-500">
+            등록된 글이 없습니다. 첫 글을 남겨보세요!
+          </div>
+        ) : (
+          displayedPosts.map(post => (
+            <div
+              key={post.id}
+              onClick={() => { setSelectedPostId(post.id); setSocialPage('detail'); }}
+              className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 cursor-pointer hover:shadow-lg transition-shadow"
+            >
+              {post.thumbnailUrl && (
+                <img src={post.thumbnailUrl} alt={post.title} className="w-full h-48 object-cover" />
+              )}
+              <div className="p-4">
+                <div className="flex justify-between items-start">
+                  <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
+                    {post.authorNickname || '익명'}
+                  </span>
+                  <div className="flex items-center space-x-1 text-gray-400 text-sm">
+                      <span>♥ {post.likeCount || 0}</span>
+                  </div>
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">{post.title}</h3>
+                <p className="text-gray-700 text-sm my-2 truncate">{post.content}</p>
+                <div className="text-xs text-gray-500 mt-2">
+                  {new Date(post.createdAt).toLocaleDateString()} · 댓글 {post.commentCount || 0}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+        
+        {hasMore && !loading && (
+          <button onClick={handleLoadMore} className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300">
             더보기
           </button>
         )}
@@ -211,43 +150,40 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
     );
   }
 
-  // --- (Part 5-2) 자유 커뮤니티 상세 ---
+  // --- [2] 상세 페이지 ---
   function SocialPostDetailPage() {
     const [post, setPost] = useState(null);
-    const [comments, setComments] = useState([]);
+    const [comments, setComments] = useState([]); 
     const [newComment, setNewComment] = useState('');
-    const [loadingDetail, setLoadingDetail] = useState(true);
-    const [errorDetail, setErrorDetail] = useState(null);
+    
+    // 시연용: 내 ID = 1
+    const CURRENT_USER_ID = 1; 
 
     useEffect(() => {
       if (!selectedPostId) return;
-      async function fetchDetail() {
-        try {
-          setLoadingDetail(true);
-          setErrorDetail(null);
-          const data = await getCommunityPost(selectedPostId);
-          setPost(data);
-          setComments(data.comments || []);
-        } catch (e) {
-          console.error('커뮤니티 상세 조회 실패:', e);
-          setErrorDetail('게시글을 불러오는 중 오류가 발생했습니다.');
-        } finally {
-          setLoadingDetail(false);
+      
+      getCommunityPost(selectedPostId).then(data => {
+        setPost(data);
+        // 상세 조회 응답에 댓글이 포함된 경우 [cite: 138]
+        if (data.comments) setComments(data.comments);
+        // 또는 댓글 목록 API를 별도로 호출 [cite: 20]
+        else {
+           listCommunityComments(selectedPostId).then(setComments).catch(() => {});
         }
-      }
-      fetchDetail();
+      }).catch(err => alert('글을 불러오지 못했습니다.'));
+
     }, [selectedPostId]);
 
-    const handleCommentSubmit = async e => {
+    const handleCommentSubmit = async (e) => {
       e.preventDefault();
-      if (!newComment.trim() || !post) return;
+      if(!newComment.trim()) return;
       try {
-        const saved = await createCommunityComment(post.id, newComment.trim());
-        setComments(prev => [...prev, saved]);
+        const saved = await createCommunityComment(post.id, newComment);
+        setComments([...comments, saved]);
         setNewComment('');
-      } catch (e) {
-        console.error('댓글 작성 실패:', e);
-        alert('댓글 작성 중 오류가 발생했습니다.');
+      } catch(e) { 
+        console.error(e);
+        alert('댓글 등록 실패: 로그인 상태나 서버를 확인해주세요.'); 
       }
     };
     const handleDeletePost = async () => {
@@ -274,27 +210,49 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
 
 
 
-    if (loadingDetail) {
-      return (
-        <div className="text-center text-gray-500 py-10">
-          게시글을 불러오는 중입니다...
-        </div>
-      );
-    }
+    // (쪽지 보내기 핸들러 삭제됨)
 
-    if (errorDetail || !post) {
-      return (
-        <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-2xl overflow-hidden">
-          <button
-            onClick={() => setSocialPage('list')}
-            className="text-indigo-600 p-4 hover:underline"
-          >
-            &larr; 커뮤니티로 돌아가기
-          </button>
-          <div className="p-6">
-            <p className="text-red-500">
-              {errorDetail || '게시글을 찾을 수 없습니다.'}
-            </p>
+    const handleDeleteComment = async (commentId) => {
+        if(!window.confirm('댓글을 삭제할까요?')) return;
+        try {
+            await deleteCommunityComment(commentId);
+            setComments(comments.filter(c => c.id !== commentId));
+        } catch(e) { alert('삭제 실패'); }
+    };
+
+    const handleDeletePost = async () => {
+      if(window.confirm('게시글을 삭제하시겠습니까?')) {
+        await deleteCommunityPost(post.id);
+        setSocialPage('list');
+      }
+    };
+
+    const handleLike = async () => {
+        try {
+            const res = await toggleCommunityLike(post.id);
+            // 좋아요 응답 예시: { postId: 1, likeCount: 13, liked: true }
+            setPost(prev => ({ ...prev, likeCount: res.likeCount, liked: res.liked }));
+        } catch(e) { alert('좋아요 실패'); }
+    };
+
+    if (!post) return <div className="p-10 text-center">로딩 중...</div>;
+    
+    // 이 부분은 인증 시스템 구현 시 실제 사용자 ID로 변경해야 함.
+    const isMyPost = post.authorId === CURRENT_USER_ID;
+
+    return (
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-xl overflow-hidden">
+        {/* 상단 네비게이션 */}
+        <div className="flex justify-between p-4 border-b items-center">
+          <button onClick={() => setSocialPage('list')} className="text-indigo-600 hover:underline">&larr; 목록</button>
+          
+          <div className="flex gap-2">
+            {isMyPost && (
+              <>
+                <button onClick={() => { setEditTarget(post); setSocialPage('upload'); }} className="px-3 py-1 bg-gray-100 rounded text-sm font-bold">수정</button>
+                <button onClick={handleDeletePost} className="px-3 py-1 bg-red-50 text-red-600 rounded text-sm font-bold">삭제</button>
+              </>
+            )}
           </div>
         </div>
       );
@@ -306,14 +264,7 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
       post &&
       (post.authorId === currentUser.id || post.author?.id === currentUser.id);
 
-    return (
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-2xl overflow-hidden">
-        <button
-          onClick={() => setSocialPage('list')}
-          className="text-indigo-600 p-4 hover:underline"
-        >
-          &larr; 커뮤니티로 돌아가기
-        </button>
+        {/* 본문 영역 */}
         <div className="p-6">
           <div className="flex justify-between items-start">
             <span className="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
@@ -363,58 +314,43 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
               </p>
             </div>
           </div>
-          <p className="text-gray-700 mt-4 whitespace-pre-wrap">
-            {post.content}
-          </p>
-          {post.imageUrls && post.imageUrls.length > 0 && (
-            <div className="space-y-3 my-4">
-              {post.imageUrls.map(url => (
-                <img
-                  key={url}
-                  src={url}
-                  alt={post.title}
-                  className="w-full h-auto object-contain rounded-md"
-                />
-              ))}
+
+          <div className="mt-8 border-t pt-6 bg-gray-50 -mx-6 px-6 pb-6">
+            <h3 className="font-bold mb-4 text-lg">댓글 ({post.commentCount || comments.length})</h3>
+            
+            <div className="space-y-3 mb-6">
+                {comments.map(c => (
+                <div key={c.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 relative group">
+                    <div className="flex justify-between items-start mb-1">
+                        <span className="text-sm font-bold text-indigo-900">{c.authorNickname}</span>
+                        <span className="text-xs text-gray-400">{new Date(c.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-gray-700 text-sm">{c.content}</p>
+                    
+                    {c.authorId === CURRENT_USER_ID && (
+                        <button 
+                            onClick={() => handleDeleteComment(c.id)} 
+                            className="absolute top-3 right-3 text-xs text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
+                        >
+                            삭제
+                        </button>
+                    )}
+                </div>
+                ))}
             </div>
-          )}
-        </div>
-        {/* 댓글 섹션 */}
-        <div className="p-6 border-t border-gray-200">
-          <h4 className="text-lg font-semibold mb-4">
-            댓글 ({comments.length})
-          </h4>
-          <div className="space-y-4 mb-4">
-            {comments.map(comment => (
-              <div key={comment.id}>
-                <p className="font-semibold text-sm">
-                  {comment.authorNickname || '익명'}
-                </p>
-                <p className="text-gray-700">{comment.content}</p>
-                <p className="text-xs text-gray-400">
-                  {new Date(comment.createdAt).toLocaleString('ko-KR', {
-                    dateStyle: 'short',
-                    timeStyle: 'short',
-                  })}
-                </p>
-              </div>
-            ))}
+
+            <form onSubmit={handleCommentSubmit} className="flex gap-2">
+              <input 
+                value={newComment} 
+                onChange={e => setNewComment(e.target.value)} 
+                className="flex-1 border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                placeholder="따뜻한 댓글을 남겨주세요" 
+              />
+              <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 rounded-lg transition-colors">
+                등록
+              </button>
+            </form>
           </div>
-          <form onSubmit={handleCommentSubmit} className="flex space-x-2">
-            <input
-              type="text"
-              value={newComment}
-              onChange={e => setNewComment(e.target.value)}
-              placeholder="댓글을 입력하세요..."
-              className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <button
-              type="submit"
-              className="bg-gray-700 text-white px-5 py-3 rounded-lg hover:bg-gray-800 font-semibold transition"
-            >
-              등록
-            </button>
-          </form>
         </div>
       </div>
     );
@@ -582,102 +518,38 @@ export default function SocialFeedSection({ socialPosts = [], onToggleSave, curr
 
   // --- (Part 5-4) 텍스트 검색 페이지 ---
   function SocialTextSearchPage() {
-    const [query, setQuery] = useState('');
-    const [results, setResults] = useState([]);
-
-    const handleSearch = e => {
+    const [q, setQ] = useState('');
+    const [res, setRes] = useState([]);
+    const handleSearch = (e) => {
       e.preventDefault();
-      const q = query.trim().toLowerCase();
-      if (!q) {
-        setResults([]);
-        return;
-      }
-      const filtered = posts.filter(
-        post =>
-          post.title.toLowerCase().includes(q) ||
-          post.content.toLowerCase().includes(q),
-      );
-      setResults(filtered);
+      const filtered = posts.filter(p => p.title.includes(q) || p.content.includes(q));
+      setRes(filtered);
     };
-
     return (
       <div className="max-w-2xl mx-auto">
-        <form onSubmit={handleSearch} className="flex mb-6">
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="flex-1 px-4 py-3 border rounded-l-lg rounded-r-none text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            placeholder="예: '면접' 또는 '가을 코디'"
-          />
-          <button type="submit" className={textSearchButtonClass}>
-            텍스트 검색
-          </button>
+        <form onSubmit={handleSearch} className="flex mb-4">
+          <input value={q} onChange={e => setQ(e.target.value)} className="flex-1 border p-2 rounded-l" placeholder="검색어" />
+          <button className={textSearchButtonClass}>검색</button>
         </form>
-        <div className="space-y-4">
-          {results.length > 0 ? (
-            results.map(post => (
-              <div
-                key={post.id}
-                className="bg-white p-4 rounded-lg shadow-md cursor-pointer hover:shadow-lg"
-                onClick={() => {
-                  setSelectedPostId(post.id);
-                  setSocialPage('detail');
-                }}
-              >
-                <span className="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-1 rounded-full mb-2">
-                  커뮤니티
-                </span>
-                <h3 className="font-semibold text-gray-800">{post.title}</h3>
-                <p className="text-sm text-gray-600 truncate">
-                  {post.content}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="text-gray-500 text-center">검색 결과가 없습니다.</p>
-          )}
-        </div>
+        {res.map(p => (
+          <div key={p.id} onClick={() => { setSelectedPostId(p.id); setSocialPage('detail'); }} className="bg-white p-3 mb-2 rounded shadow cursor-pointer">
+            <h3 className="font-bold">{p.title}</h3>
+          </div>
+        ))}
       </div>
     );
   }
 
-  // --- (Part 5) 자유 커뮤니티 섹션 메인 렌더링 ---
   return (
     <div className="w-full flex flex-col">
-      <nav className="w-full bg-white shadow-md mb-8 sticky top-0 z-10">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="space-x-6">
-            <button
-              onClick={() => setSocialPage('list')}
-              className={`font-semibold text-lg ${
-                socialPage === 'list'
-                  ? 'text-indigo-600 border-b-2 border-indigo-600'
-                  : 'text-gray-600'
-              }`}
-            >
-              커뮤니티 홈
-            </button>
-            <button
-              onClick={() => setSocialPage('search')}
-              className={`font-semibold text-lg ${
-                socialPage === 'search'
-                  ? 'text-indigo-600 border-b-2 border-indigo-600'
-                  : 'text-gray-600'
-              }`}
-            >
-              텍스트 검색
-            </button>
-          </div>
-          <button
-            onClick={() => setSocialPage('upload')}
-            className={buttonClass}
-          >
-            + 글쓰기
-          </button>
+      <nav className="bg-white shadow mb-8 sticky top-0 z-10 px-6 py-4 flex justify-between">
+        <div className="space-x-4">
+          <button onClick={() => setSocialPage('list')} className={`font-bold ${socialPage==='list'?'text-indigo-600':'text-gray-500'}`}>커뮤니티 홈</button>
+          <button onClick={() => setSocialPage('search')} className={`font-bold ${socialPage==='search'?'text-indigo-600':'text-gray-500'}`}>검색</button>
         </div>
+        <button onClick={() => { setEditTarget(null); setSocialPage('upload'); }} className={buttonClass}>+ 글쓰기</button>
       </nav>
-      <main className="container mx-auto px-4 sm:px-6 pb-8 flex-grow">
+      <main className="container mx-auto px-4 pb-10">
         {socialPage === 'list' && <SocialFeedPage />}
         {socialPage === 'detail' && <SocialPostDetailPage />}
         {socialPage === 'upload' && <UploadSocialPostPage />}

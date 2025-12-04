@@ -214,7 +214,7 @@ export default function App() {
       />
 
       <Routes>
-        {/* --- Public Routes (중앙 정렬) --- */}
+        {/* 공개 페이지들 */}
         <Route element={<CenteredLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route

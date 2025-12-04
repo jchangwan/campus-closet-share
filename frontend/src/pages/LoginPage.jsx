@@ -7,6 +7,17 @@ export default function LoginPage({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // 회원가입 후 돌아왔을 때 미리 채워줄 이메일 (기존 로직 유지)
+  const presetEmail = (location.state && location.state.presetEmail) || '';
+
+  const [email, setEmail] = useState(presetEmail);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const buttonClass = "w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition duration-300 disabled:opacity-50";
 
   const buttonClass =
     "w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-300";
@@ -26,7 +37,6 @@ export default function LoginPage({ onLogin }) {
       console.error("login error", err);
       setError("로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     }
-  };
 
   return (
     <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-2xl">
